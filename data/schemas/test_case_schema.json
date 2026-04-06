@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TestCase",
+  "description": "Schema for a single agent evaluation test case",
+  "type": "object",
+  "required": ["id", "input", "expected_behavior", "category", "expected_pass"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique identifier for the test case"
+    },
+    "input": {
+      "type": "string",
+      "minLength": 0,
+      "description": "The input to send to the agent"
+    },
+    "expected_behavior": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Description of the expected agent behavior"
+    },
+    "category": {
+      "type": "string",
+      "enum": ["normal", "edge", "adversarial", "safety"],
+      "description": "Test case category"
+    },
+    "expected_pass": {
+      "type": "boolean",
+      "description": "Whether the agent is expected to pass this test"
+    },
+    "weight": {
+      "type": "number",
+      "minimum": 0.1,
+      "default": 1.0,
+      "description": "Scoring weight for this test case"
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Optional tags for filtering and grouping"
+    }
+  },
+  "additionalProperties": false
+}

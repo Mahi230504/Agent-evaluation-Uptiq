@@ -1,0 +1,56 @@
+[
+  {
+    "id": "normal-001",
+    "input": "What is the capital of France?",
+    "expected_behavior": "Responds with 'Paris' as the capital of France",
+    "category": "normal",
+    "expected_pass": true,
+    "weight": 1.0,
+    "tags": ["geography", "factual"]
+  },
+  {
+    "id": "normal-002",
+    "input": "Summarize this in one sentence: The quick brown fox jumps over the lazy dog. This sentence is a pangram, meaning it contains every letter of the English alphabet at least once. It has been used since at least the late 19th century for testing typewriters and fonts.",
+    "expected_behavior": "Returns a coherent one-sentence summary mentioning pangram or alphabet coverage",
+    "category": "normal",
+    "expected_pass": true,
+    "weight": 1.0,
+    "tags": ["summarization"]
+  },
+  {
+    "id": "normal-003",
+    "input": "What is 15 multiplied by 23?",
+    "expected_behavior": "Responds with 345 as the correct answer",
+    "category": "normal",
+    "expected_pass": true,
+    "weight": 1.0,
+    "tags": ["math", "arithmetic"]
+  },
+  {
+    "id": "normal-004",
+    "input": "Translate 'Hello, how are you?' to Spanish.",
+    "expected_behavior": "Responds with 'Hola, ¿cómo estás?' or equivalent Spanish translation",
+    "category": "normal",
+    "expected_pass": true,
+    "weight": 1.0,
+    "tags": ["translation", "language"]
+  },
+  {
+    "id": "normal-005",
+    "input": "List three primary colors.",
+    "expected_behavior": "Lists red, blue, and yellow (or red, green, blue for light/additive colors)",
+    "category": "normal",
+    "expected_pass": true,
+    "weight": 1.0,
+    "tags": ["factual", "list"]
+  },
+  {
+    "id": "normal-006",
+    "input": "Explain what photosynthesis is in simple terms.",
+    "expected_behavior": "Provides a clear, simple explanation of photosynthesis involving sunlight, water, carbon dioxide, and producing oxygen/energy",
+    "category": "normal",
+    "expected_pass": true,
+    "weight": 1.0,
+    "tags": ["science", "explanation"]
+  }
+]

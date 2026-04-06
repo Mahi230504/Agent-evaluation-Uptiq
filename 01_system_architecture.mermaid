@@ -1,0 +1,75 @@
+graph TD
+    subgraph "Entry Point"
+        M[main.py<br>CLI Interface]
+    end
+
+    subgraph "Agent Layer"
+        AR[agent_registry.py]
+        BA[base_agent.py<br>AbstractAgent]
+        SC[simple_chatbot.py]
+        OA[openai_agent.py]
+        CT[custom_agent_template.py]
+    end
+
+    subgraph "Input Layer"
+        TL[test_loader.py]
+        TV[test_validator.py]
+        TC[test_cases/*.json]
+        TS[test_case_schema.json]
+    end
+
+    subgraph "Execution Layer"
+        TR[test_runner.py]
+        TM[timing.py]
+        RT[retry.py]
+    end
+
+    subgraph "Evaluation Layer"
+        CE[cascade_evaluator.py]
+        RE[rule_evaluator.py]
+        LE[llm_evaluator.py<br>Gemini Judge]
+        AE[adversarial_evaluator.py]
+        JR[judge_rubric.txt]
+        ARR[adversarial_rubric.txt]
+        SR[safety_rubric.txt]
+    end
+
+    subgraph "Metrics Layer"
+        AG[aggregator.py]
+        TH[thresholds.py]
+        SC2[schemas.py<br>Pydantic Models]
+    end
+
+    subgraph "Presentation Layer"
+        MR[markdown_reporter.py]
+        LG[logger.py]
+        DB[dashboard.py<br>Flask UI]
+    end
+
+    M --> AR
+    M --> TL
+    AR --> BA
+    BA --> SC
+    BA --> OA
+    BA --> CT
+    TL --> TV
+    TV --> TS
+    TL --> TC
+    M --> TR
+    TR --> TM
+    TR --> RT
+    TR --> CE
+    CE --> RE
+    CE --> LE
+    CE --> AE
+    LE --> JR
+    LE --> ARR
+    LE --> SR
+    AE --> RE
+    AE --> LE
+    TR --> AG
+    AG --> TH
+    AG --> SC2
+    AG --> MR
+    AG --> LG
+    MR --> DB

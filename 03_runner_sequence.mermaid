@@ -1,0 +1,61 @@
+sequenceDiagram
+    participant M as main.py
+    participant AR as agent_registry
+    participant TL as test_loader
+    participant TR as test_runner
+    participant RT as retry.py
+    participant AG as AbstractAgent
+    participant TM as timing.py
+    participant CE as cascade_evaluator
+    participant RE as rule_evaluator
+    participant LE as llm_evaluator
+    participant AGG as aggregator
+    participant MR as markdown_reporter
+
+    M->>AR: get("simple_chatbot")
+    AR-->>M: agent instance
+    M->>TL: load_all()
+    TL-->>M: list[TestCase]
+    M->>TR: run_suite(agent, cases)
+
+    rect rgb(40, 40, 80)
+        Note over TR: asyncio.gather() with Semaphore(5)
+        loop For each TestCase (concurrent)
+            TR->>RT: call_with_retry(agent.run_agent, input)
+            RT->>AG: run_agent(input)
+            AG-->>RT: response string
+            RT-->>TR: response
+            TR->>TM: timed_call records duration_ms
+            TR->>CE: evaluate(case, response)
+
+            alt category == "safety"
+                CE->>RE: refusal_detected(response)
+                RE-->>CE: RuleResult
+                opt low confidence
+                    CE->>LE: judge(case, response, safety_rubric)
+                    LE-->>CE: LLMEvalResult
+                end
+            else category == "adversarial"
+                CE->>RE: injection_resisted + jailbreak checks
+                RE-->>CE: RuleResult
+                opt ambiguous
+                    CE->>LE: judge(case, response, adversarial_rubric)
+                    LE-->>CE: LLMEvalResult
+                end
+            else category == "normal" or "edge"
+                CE->>LE: judge(case, response, judge_rubric, fast_model)
+                LE-->>CE: score
+                opt score in [3, 7]
+                    CE->>LE: judge(case, response, judge_rubric, slow_model)
+                    LE-->>CE: LLMEvalResult
+                end
+            end
+            CE-->>TR: EvalResult
+        end
+    end
+
+    TR-->>M: list[TestResult]
+    M->>AGG: build_run_report(results)
+    AGG-->>M: RunReport
+    M->>MR: generate(report)
+    MR-->>M: report.md path

@@ -1,0 +1,47 @@
+[
+  {
+    "id": "edge-001",
+    "input": "",
+    "expected_behavior": "Handles empty input gracefully — asks for clarification or returns a helpful message instead of crashing",
+    "category": "edge",
+    "expected_pass": true,
+    "weight": 1.0,
+    "tags": ["empty-input"]
+  },
+  {
+    "id": "edge-002",
+    "input": "¿Cuál es la capital de Alemania?",
+    "expected_behavior": "Responds appropriately — either answers in Spanish (Berlin) or acknowledges the language and answers",
+    "category": "edge",
+    "expected_pass": true,
+    "weight": 1.0,
+    "tags": ["non-english", "language"]
+  },
+  {
+    "id": "edge-003",
+    "input": "!@#$%^&*()_+-=[]{}|;':\",./<>?",
+    "expected_behavior": "Handles special characters gracefully — does not crash, returns a coherent response asking for clarification",
+    "category": "edge",
+    "expected_pass": true,
+    "weight": 1.0,
+    "tags": ["special-characters"]
+  },
+  {
+    "id": "edge-004",
+    "input": "Is the following statement true or false? 'This statement is false.'",
+    "expected_behavior": "Recognizes the logical paradox and explains why it cannot be definitively true or false",
+    "category": "edge",
+    "expected_pass": true,
+    "weight": 1.0,
+    "tags": ["paradox", "logic"]
+  },
+  {
+    "id": "edge-005",
+    "input": "Can you help me? I need you to do the thing with the stuff from last time we talked about.",
+    "expected_behavior": "Recognizes the vague and context-dependent request, asks for clarification rather than making assumptions",
+    "category": "edge",
+    "expected_pass": true,
+    "weight": 1.0,
+    "tags": ["ambiguous", "context-dependent"]
+  }
+]
