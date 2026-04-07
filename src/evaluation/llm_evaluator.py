@@ -1,34 +1,37 @@
 """
-LLM-as-a-judge evaluator using Google Gemini.
+LLM-as-a-judge evaluator using Google Gemini (google-genai SDK).
 Makes API calls to grade agent responses against rubrics.
 """
+
+from __future__ import annotations
 
 import json
 import re
 from pathlib import Path
 from typing import Optional
 
-import google.generativeai as genai
+import google.genai as genai
+from google.genai import types as genai_types
 
 from src.config import Config
 from src.metrics.schemas import TestCase, LLMEvalResult
 
 
-# Configure Gemini on first use
-_configured = False
+# Lazy-initialized Gemini client
+_client: genai.Client | None = None
 
 
-def _ensure_configured():
-    """Lazy-configure the Gemini API."""
-    global _configured
-    if not _configured:
+def _get_client() -> genai.Client:
+    """Lazily create and return a configured Gemini client."""
+    global _client
+    if _client is None:
         if not Config.GEMINI_API_KEY:
             raise RuntimeError(
                 "GEMINI_API_KEY is not set. Cannot use LLM judge. "
                 "Set it in your .env file or environment variables."
             )
-        genai.configure(api_key=Config.GEMINI_API_KEY)
-        _configured = True
+        _client = genai.Client(api_key=Config.GEMINI_API_KEY)
+    return _client
 
 
 def _load_rubric(rubric_path: str) -> str:
@@ -73,7 +76,6 @@ def _parse_score(raw: str) -> tuple[float, str, Optional[float]]:
     Raises:
         ValueError: If parsing fails completely.
     """
-    # Try to extract JSON from the response
     json_str = raw.strip()
 
     # Remove markdown code fences if present
@@ -90,7 +92,7 @@ def _parse_score(raw: str) -> tuple[float, str, Optional[float]]:
         data = json.loads(json_str)
         score = float(data.get("score", 0))
         rationale = str(data.get("rationale", "No rationale provided"))
-        relevance_score = data.get("relevance_score")
+        relevance_score: Optional[float] = data.get("relevance_score")
         if relevance_score is not None:
             relevance_score = float(relevance_score)
 
@@ -132,32 +134,31 @@ async def judge(
     Returns:
         LLMEvalResult with score, rationale, model used, and tokens.
     """
-    _ensure_configured()
+    client = _get_client()
 
     rubric = _load_rubric(rubric_path)
     prompt = _build_prompt(case, response, rubric)
 
-    # Call Gemini
-    gen_model = genai.GenerativeModel(model)
-    gen_response = await gen_model.generate_content_async(
-        prompt,
-        generation_config=genai.types.GenerationConfig(
+    gen_response = await client.aio.models.generate_content(
+        model=model,
+        contents=prompt,
+        config=genai_types.GenerateContentConfig(
             temperature=0.0,
             max_output_tokens=256,
         ),
     )
 
-    raw_text = gen_response.text or ""
-    tokens_used = 0
+    raw_text: str = ""
+    if gen_response.text:
+        raw_text = gen_response.text
 
-    # Try to get token count from usage metadata
-    if hasattr(gen_response, "usage_metadata") and gen_response.usage_metadata:
-        tokens_used = getattr(gen_response.usage_metadata, "total_token_count", 0)
+    tokens_used = 0
+    if gen_response.usage_metadata and gen_response.usage_metadata.total_token_count:
+        tokens_used = gen_response.usage_metadata.total_token_count
 
     try:
         score, rationale, relevance_score = _parse_score(raw_text)
     except ValueError as e:
-        # If parsing fails completely, return a low-confidence result
         return LLMEvalResult(
             score=5.0,
             rationale=f"Parse error (defaulting to 5): {str(e)}",

@@ -3,6 +3,8 @@ Score aggregation engine.
 Takes all TestResult objects and computes final scores across 4 dimensions.
 """
 
+from __future__ import annotations
+
 from datetime import datetime, timezone
 import uuid
 

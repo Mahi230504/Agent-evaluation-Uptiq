@@ -36,10 +36,13 @@ python main.py --agent simple_chatbot
 
 ### 4. View results
 ```bash
-# Check the generated report
+# Check the generated Markdown report
 cat reports/run_*/report.md
 
-# Or launch the dashboard
+# Or launch the Streamlit dashboard (recommended)
+streamlit run streamlit_app.py
+
+# Or launch the minimal Flask dashboard
 python main.py --dashboard
 ```
 

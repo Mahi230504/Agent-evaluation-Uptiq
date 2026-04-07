@@ -3,9 +3,10 @@ Async test execution engine.
 Dispatches all test cases concurrently (with semaphore) and collects results.
 """
 
+from __future__ import annotations
+
 import asyncio
 from pathlib import Path
-from typing import cast, Optional
 
 from agents.base_agent import AbstractAgent
 from src.config import Config
@@ -19,7 +20,7 @@ from src.reporting.logger import log_result
 async def run_suite(
     agent: AbstractAgent,
     cases: list[TestCase],
-    log_path: Optional[Path | str] = None,
+    log_path: Path | str | None = None,
 ) -> list[TestResult]:
     """
     Run the full test suite against an agent.
@@ -43,14 +44,15 @@ async def run_suite(
 
     # Run all tests concurrently (bounded by semaphore)
     tasks = [_guarded_run(case) for case in cases]
-    results = cast(list[TestResult], await asyncio.gather(*tasks, return_exceptions=False))
+    results: list[TestResult] = list(await asyncio.gather(*tasks, return_exceptions=False))
 
     # Log intermediate results
     if log_path:
+        log_path = Path(log_path)
         for result in results:
             log_result(result, log_path)
 
-    return list(results)
+    return results
 
 
 async def _run_single(agent: AbstractAgent, case: TestCase) -> TestResult:
@@ -62,11 +64,11 @@ async def _run_single(agent: AbstractAgent, case: TestCase) -> TestResult:
     """
     agent_response = ""
     duration_ms = 0.0
-    error_msg = None
+    error_msg: str | None = None
 
     try:
         # Call agent with retry + timeout, wrapped with timing
-        (agent_response, duration_ms) = await timed_call(
+        agent_response, duration_ms = await timed_call(
             call_with_retry(
                 fn=agent.run_agent,
                 input=case.input,

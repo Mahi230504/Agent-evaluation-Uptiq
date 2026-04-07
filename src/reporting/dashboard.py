@@ -2,6 +2,8 @@
 Minimal Flask dashboard serving an HTML view of the latest evaluation report.
 """
 
+from __future__ import annotations
+
 import json
 from pathlib import Path
 
