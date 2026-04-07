@@ -1,561 +1,891 @@
 """
-Streamlit UI for the Agent Evaluation Framework.
-Run with: streamlit run streamlit_app.py
+Agent Evaluation Framework — Production-Grade Streamlit UI
+5 Pages: Dashboard · New Evaluation · Results · Test Inspector · History
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
-import subprocess
+import os
 import sys
+import uuid
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
 import plotly.graph_objects as go
+import plotly.express as px
 import streamlit as st
 
-# ── Project root on sys.path ──────────────────────────────────────────────────
-_ROOT = Path(__file__).resolve().parent
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
+# ── Path setup ─────────────────────────────────────────────────────────────────
+sys.path.insert(0, str(Path(__file__).parent))
 
-from src.config import Config
-from src.metrics.schemas import RunReport
-
-# ── Page config ───────────────────────────────────────────────────────────────
+# ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Agent Evaluation Framework",
+    page_title="Agent Eval Studio",
     page_icon="🧪",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ── Custom CSS ────────────────────────────────────────────────────────────────
+# ── Custom CSS ─────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
-  html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+*, html, body, [class*="css"] {
+    font-family: 'Inter', sans-serif;
+}
 
-  /* Sidebar */
-  [data-testid="stSidebar"] {
-      background: #0f172a;
-  }
-  [data-testid="stSidebar"] * { color: #e2e8f0 !important; }
+/* ── App background ── */
+.stApp {
+    background: linear-gradient(135deg, #0f0f1a 0%, #13131f 50%, #0f0f1a 100%);
+    color: #e2e8f0;
+}
 
-  /* Main background */
-  .stApp { background: #0f172a; }
-  .main .block-container { padding-top: 2rem; }
+/* ── Sidebar ── */
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #12121e 0%, #1a1a2e 100%);
+    border-right: 1px solid rgba(99, 102, 241, 0.15);
+}
+[data-testid="stSidebar"] * { color: #cbd5e1 !important; }
+[data-testid="stSidebar"] .stSelectbox label,
+[data-testid="stSidebar"] .stMultiSelect label { color: #94a3b8 !important; font-size: 0.75rem !important; }
 
-  /* Cards */
-  .metric-card {
-      background: #1e293b;
-      border-radius: 16px;
-      padding: 1.5rem;
-      border: 1px solid #334155;
-      text-align: center;
-  }
-  .metric-label {
-      font-size: 0.75rem;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      color: #94a3b8;
-      margin-bottom: 0.5rem;
-  }
-  .metric-value {
-      font-size: 2.75rem;
-      font-weight: 700;
-      line-height: 1;
-  }
+/* ── Metric cards ── */
+.metric-card {
+    background: linear-gradient(135deg, rgba(99,102,241,0.08) 0%, rgba(139,92,246,0.06) 100%);
+    border: 1px solid rgba(99,102,241,0.2);
+    border-radius: 16px;
+    padding: 1.4rem 1.6rem;
+    margin-bottom: 0.5rem;
+    transition: all 0.25s ease;
+}
+.metric-card:hover {
+    border-color: rgba(99,102,241,0.45);
+    background: linear-gradient(135deg, rgba(99,102,241,0.12) 0%, rgba(139,92,246,0.09) 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 32px rgba(99,102,241,0.15);
+}
+.metric-label { font-size: 0.72rem; font-weight: 600; color: #7c8db5; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.4rem; }
+.metric-value { font-size: 1.9rem; font-weight: 700; color: #e2e8f0; line-height: 1; }
+.metric-sub   { font-size: 0.75rem; color: #64748b; margin-top: 0.35rem; }
 
-  /* Verdict banner */
-  .verdict-pass {
-      background: rgba(34,197,94,0.12);
-      border: 1.5px solid #22c55e;
-      border-radius: 14px;
-      padding: 1.25rem 2rem;
-      text-align: center;
-      font-size: 1.4rem;
-      font-weight: 700;
-      color: #4ade80;
-      margin-bottom: 1.5rem;
-  }
-  .verdict-fail {
-      background: rgba(239,68,68,0.12);
-      border: 1.5px solid #ef4444;
-      border-radius: 14px;
-      padding: 1.25rem 2rem;
-      text-align: center;
-      font-size: 1.4rem;
-      font-weight: 700;
-      color: #f87171;
-      margin-bottom: 1.5rem;
-  }
+/* ── Verdict banners ── */
+.verdict-pass {
+    background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(5,150,105,0.08));
+    border: 1px solid rgba(16,185,129,0.35);
+    border-radius: 14px;
+    padding: 1.2rem 1.6rem;
+    text-align: center;
+}
+.verdict-fail {
+    background: linear-gradient(135deg, rgba(239,68,68,0.15), rgba(220,38,38,0.08));
+    border: 1px solid rgba(239,68,68,0.35);
+    border-radius: 14px;
+    padding: 1.2rem 1.6rem;
+    text-align: center;
+}
+.verdict-title { font-size: 1.6rem; font-weight: 700; margin-bottom: 0.2rem; }
+.verdict-sub   { font-size: 0.85rem; opacity: 0.75; }
 
-  /* Table styles */
-  .stDataFrame { border-radius: 12px; overflow: hidden; }
+/* ── Section headers ── */
+.section-header {
+    font-size: 1.1rem; font-weight: 600; color: #a5b4fc;
+    border-bottom: 1px solid rgba(99,102,241,0.2);
+    padding-bottom: 0.5rem;
+    margin: 1.2rem 0 0.8rem 0;
+}
 
-  /* Badge colours for categories shown in table */
-  .badge-normal { color: #60a5fa; }
-  .badge-edge { color: #a78bfa; }
-  .badge-adversarial { color: #fb923c; }
-  .badge-safety { color: #34d399; }
+/* ── Tag badges ── */
+.tag {
+    display: inline-block;
+    background: rgba(99,102,241,0.15);
+    border: 1px solid rgba(99,102,241,0.3);
+    border-radius: 6px;
+    padding: 0.15rem 0.55rem;
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: #a5b4fc;
+    margin-right: 0.25rem;
+}
+.tag-pass { background: rgba(16,185,129,0.15); border-color: rgba(16,185,129,0.3); color: #6ee7b7; }
+.tag-fail { background: rgba(239,68,68,0.15);  border-color: rgba(239,68,68,0.3);  color: #fca5a5; }
+.tag-skip { background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.3); color: #fcd34d; }
 
-  /* Headings */
-  h1, h2, h3 { color: #f1f5f9 !important; }
-  .stMarkdown p { color: #cbd5e1; }
+/* ── Tables ── */
+[data-testid="stDataFrame"] {
+    border: 1px solid rgba(99,102,241,0.15) !important;
+    border-radius: 12px !important;
+    overflow: hidden !important;
+}
 
-  /* Input labels */
-  label { color: #94a3b8 !important; }
+/* ── Inputs ── */
+.stTextInput input, .stTextArea textarea, .stSelectbox div[data-baseweb="select"] {
+    background: rgba(255,255,255,0.04) !important;
+    border: 1px solid rgba(99,102,241,0.2) !important;
+    border-radius: 10px !important;
+    color: #e2e8f0 !important;
+}
+.stMultiSelect [data-baseweb="select"] {
+    background: rgba(255,255,255,0.04) !important;
+    border: 1px solid rgba(99,102,241,0.2) !important;
+    border-radius: 10px !important;
+}
 
-  /* Buttons */
-  .stButton > button {
-      background: linear-gradient(135deg, #6366f1, #8b5cf6);
-      color: #fff;
-      border: none;
-      border-radius: 10px;
-      padding: 0.6rem 1.6rem;
-      font-weight: 600;
-      font-size: 0.9rem;
-      transition: opacity 0.2s;
-  }
-  .stButton > button:hover { opacity: 0.85; }
+/* ── Buttons ── */
+.stButton > button {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6) !important;
+    color: white !important;
+    border: none !important;
+    border-radius: 10px !important;
+    font-weight: 600 !important;
+    padding: 0.55rem 1.4rem !important;
+    transition: all 0.2s ease !important;
+}
+.stButton > button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(99,102,241,0.4) !important;
+}
+
+/* ── Nav pills ── */
+.nav-pill {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    font-size: 0.85rem; font-weight: 500;
+    cursor: pointer; margin-bottom: 0.25rem;
+    transition: all 0.2s ease;
+    color: #94a3b8; background: transparent;
+    width: 100%;
+}
+.nav-pill:hover  { background: rgba(99,102,241,0.1); color: #a5b4fc; }
+.nav-pill.active { background: rgba(99,102,241,0.18); color: #a5b4fc; border-left: 3px solid #6366f1; padding-left: 0.8rem; }
+
+/* ── Expander ── */
+.streamlit-expanderHeader {
+    background: rgba(255,255,255,0.03) !important;
+    border-radius: 10px !important;
+}
+
+/* ── Divider ── */
+hr { border-color: rgba(99,102,241,0.15) !important; }
+
+/* ── Logo ── */
+.logo-text {
+    font-size: 1.35rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #818cf8, #c084fc);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+.logo-sub { font-size: 0.7rem; color: #475569; font-weight: 400; margin-top: -4px; }
 </style>
 """, unsafe_allow_html=True)
 
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-def load_report(path: Path) -> RunReport | None:
-    """Load a RunReport from a summary.json file."""
-    try:
-        with open(path) as f:
-            return RunReport(**json.load(f))
-    except Exception:
-        return None
+# ── Helpers ────────────────────────────────────────────────────────────────────
+REPORTS_DIR = Path("reports")
+REPORTS_DIR.mkdir(exist_ok=True)
 
 
-def list_reports() -> list[tuple[str, Path]]:
-    """Return list of (run_id, summary_path) sorted newest-first."""
-    reports_dir = Config.REPORTS_DIR
-    if not reports_dir.exists():
-        return []
-    runs = sorted(
-        [d for d in reports_dir.iterdir() if d.is_dir() and d.name.startswith("run_")],
-        reverse=True,
-    )
-    result = []
-    for run_dir in runs:
-        s = run_dir / "summary.json"
-        if s.exists():
-            result.append((run_dir.name, s))
-    return result
-
-
-def score_color(score: float) -> str:
+def _score_color(score: float) -> str:
     if score >= 8.0:
-        return "#4ade80"
-    if score >= 6.0:
-        return "#facc15"
-    return "#f87171"
+        return "#10b981"
+    elif score >= 6.0:
+        return "#f59e0b"
+    else:
+        return "#ef4444"
 
 
-def gauge_fig(value: float, title: str, color: str) -> go.Figure:
-    """Create a compact Plotly gauge."""
+def _gauge(score: float, title: str, max_val: float = 10.0) -> go.Figure:
+    color = _score_color(score)
     fig = go.Figure(go.Indicator(
         mode="gauge+number",
-        value=value,
-        number={"font": {"size": 36, "color": color}, "suffix": ""},
-        title={"text": title, "font": {"size": 13, "color": "#94a3b8"}},
+        value=score,
+        number={"font": {"size": 28, "color": color, "family": "Inter"}, "suffix": "/10"},
+        title={"text": title, "font": {"size": 13, "color": "#94a3b8", "family": "Inter"}},
         gauge={
-            "axis": {"range": [0, 10], "tickfont": {"color": "#cbd5e1"}, "tickcolor": "#334155"},
+            "axis": {"range": [0, max_val], "tickwidth": 0, "tickcolor": "#334155"},
             "bar": {"color": color, "thickness": 0.25},
-            "bgcolor": "#1e293b",
-            "bordercolor": "#334155",
+            "bgcolor": "rgba(0,0,0,0)",
+            "borderwidth": 0,
             "steps": [
-                {"range": [0, 5], "color": "rgba(239,68,68,0.15)"},
-                {"range": [5, 7.5], "color": "rgba(234,179,8,0.15)"},
-                {"range": [7.5, 10], "color": "rgba(34,197,94,0.15)"},
+                {"range": [0, 6],  "color": "rgba(239,68,68,0.07)"},
+                {"range": [6, 8],  "color": "rgba(245,158,11,0.07)"},
+                {"range": [8, 10], "color": "rgba(16,185,129,0.07)"},
             ],
-            "threshold": {
-                "line": {"color": color, "width": 3},
-                "thickness": 0.75,
-                "value": value,
-            },
+            "threshold": {"line": {"color": color, "width": 3}, "thickness": 0.8, "value": score},
         },
     ))
     fig.update_layout(
-        height=220,
-        margin=dict(t=40, b=10, l=20, r=20),
-        paper_bgcolor="rgba(0,0,0,0)",
-        font_color="#e2e8f0",
-    )
-    return fig
-
-
-def bar_chart(report: RunReport) -> go.Figure:
-    """Stacked bar: pass / fail / error per category."""
-    cats = ["normal", "edge", "adversarial", "safety"]
-    passed_counts = {c: 0 for c in cats}
-    failed_counts = {c: 0 for c in cats}
-    error_counts  = {c: 0 for c in cats}
-
-    for r in report.results:
-        cat = r.test_case.category
-        if r.error:
-            error_counts[cat] += 1
-        elif r.eval_result.passed:
-            passed_counts[cat] += 1
-        else:
-            failed_counts[cat] += 1
-
-    fig = go.Figure(data=[
-        go.Bar(name="Pass",  x=cats, y=[passed_counts[c] for c in cats], marker_color="#4ade80"),
-        go.Bar(name="Fail",  x=cats, y=[failed_counts[c] for c in cats], marker_color="#f87171"),
-        go.Bar(name="Error", x=cats, y=[error_counts[c]  for c in cats], marker_color="#fbbf24"),
-    ])
-    fig.update_layout(
-        barmode="stack",
+        height=180,
+        margin={"t": 40, "b": 0, "l": 20, "r": 20},
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font_color="#e2e8f0",
-        legend=dict(bgcolor="rgba(0,0,0,0)"),
-        margin=dict(t=20, b=20, l=10, r=10),
-        height=260,
-        xaxis=dict(gridcolor="#334155"),
-        yaxis=dict(gridcolor="#334155"),
+        font={"family": "Inter"},
     )
     return fig
 
 
-# ── Sidebar navigation ────────────────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("## 🧪 Agent Evaluator")
-    st.markdown("---")
-    page = st.radio(
-        "Navigate",
-        ["🚀 Run Evaluation", "📊 Results", "📋 Test Details", "📁 Report History"],
-        label_visibility="collapsed",
+def _metric_bar_chart(metric_scores: dict) -> go.Figure:
+    names, scores, colors = [], [], []
+    for name, data in metric_scores.items():
+        score = data.get("score", 0) * 10 if isinstance(data, dict) else 0
+        skipped = data.get("skipped", False) if isinstance(data, dict) else False
+        names.append(name)
+        scores.append(score)
+        if skipped:
+            colors.append("rgba(100,116,139,0.5)")
+        elif score >= 8:
+            colors.append("rgba(16,185,129,0.75)")
+        elif score >= 6:
+            colors.append("rgba(245,158,11,0.75)")
+        else:
+            colors.append("rgba(239,68,68,0.75)")
+
+    fig = go.Figure(go.Bar(
+        x=scores, y=names, orientation="h",
+        marker={"color": colors, "line": {"width": 0}},
+        text=[f"{s:.1f}" for s in scores],
+        textposition="outside",
+        textfont={"family": "Inter", "size": 12, "color": "#cbd5e1"},
+    ))
+    fig.update_layout(
+        height=max(220, len(names) * 42),
+        xaxis={"range": [0, 11], "showgrid": False, "zeroline": False, "tickcolor": "#334155", "color": "#64748b"},
+        yaxis={"autorange": "reversed", "tickcolor": "#334155", "color": "#cbd5e1"},
+        margin={"l": 0, "r": 60, "t": 10, "b": 20},
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font={"family": "Inter"},
+        bargap=0.35,
     )
-    st.markdown("---")
-
-    # Report selector (shown on all pages except Run)
-    all_reports = list_reports()
-    selected_report_path: Path | None = None
-
-    if all_reports and page != "🚀 Run Evaluation":
-        run_labels = [r[0] for r in all_reports]
-        sel = st.selectbox("Report", run_labels, index=0)
-        selected_report_path = next(p for label, p in all_reports if label == sel)
+    return fig
 
 
-# ── Page: Run Evaluation ──────────────────────────────────────────────────────
-if page == "🚀 Run Evaluation":
-    st.markdown("# 🚀 Run Evaluation")
-    st.markdown("Configure and launch an evaluation run against your agent.")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        # Agent selector
-        agents = ["simple_chatbot", "openai_agent"]
-        # Try to auto-detect from registry
+def _load_all_runs() -> list[dict]:
+    """Load all summary.json files from reports/."""
+    runs = []
+    for path in sorted(REPORTS_DIR.glob("**/summary.json"), reverse=True):
         try:
-            from agents.agent_registry import list_agents as _list_agents
-            agents = _list_agents()
+            with open(path) as f:
+                data = json.load(f)
+                data["_path"] = str(path)
+                runs.append(data)
         except Exception:
             pass
-        agent_name = st.selectbox("Agent", agents)
+    return runs
 
-    with col2:
-        category = st.selectbox(
-            "Test Category",
-            ["all", "normal", "edge", "adversarial", "safety"],
+
+def _load_latest_run() -> dict | None:
+    runs = _load_all_runs()
+    return runs[0] if runs else None
+
+
+def _run_evaluation_sync(agent_name: str, agent_types: list[str],
+                          categories: list[str], custom_criteria: str,
+                          use_g_eval: bool) -> dict | None:
+    """Run the evaluation pipeline synchronously from Streamlit."""
+    try:
+        from agents import agent_registry
+        from src.loader import test_loader
+        from src.runner import test_runner
+        from src.metrics.aggregator import build_run_report
+        from src.reporting import markdown_reporter, logger
+        from src.evaluation.metric_selector import select_metrics
+        from src.config import Config
+
+        agent = asyncio.get_event_loop().run_until_complete(
+            _async_setup_agent(agent_registry, agent_name)
         )
+        if not agent:
+            return None
 
-    col3, col4 = st.columns(2)
-    with col3:
-        dry_run = st.checkbox("Dry run (validate only)", value=False)
-    with col4:
-        gemini_key = st.text_input(
-            "Gemini API Key (overrides .env)",
-            type="password",
-            placeholder="Leave blank to use .env value",
-        )
-
-    st.markdown("---")
-    run_btn = st.button("▶ Run Evaluation", use_container_width=True)
-
-    if run_btn:
-        cmd = [sys.executable, "main.py", "--agent", agent_name]
-        if category != "all":
-            cmd += ["--category", category]
-        if dry_run:
-            cmd.append("--dry-run")
-
-        env_override = {}
-        if gemini_key:
-            env_override["GEMINI_API_KEY"] = gemini_key
-
-        st.markdown("### 🔄 Evaluation Output")
-        output_box = st.empty()
-        full_output: list[str] = []
-
-        with st.spinner("Running evaluation…"):
-            import os
-            run_env = {**os.environ, **env_override}
-            process = subprocess.Popen(
-                cmd,
-                cwd=str(_ROOT),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                env=run_env,
-            )
-            assert process.stdout is not None
-            for line in process.stdout:
-                full_output.append(line)
-                output_box.code("".join(full_output), language="text")
-
-            process.wait()
-
-        if process.returncode == 0:
-            st.success("✅ Evaluation complete! Go to **📊 Results** to view the report.")
+        if categories:
+            cases = []
+            for cat in categories:
+                cases.extend(test_loader.load_by_category(cat))
         else:
-            st.error("❌ Evaluation failed. Check output above for details.")
+            cases = test_loader.load_all()
+
+        metrics = select_metrics(
+            agent_types,
+            custom_criteria=custom_criteria if use_g_eval else None,
+            include_g_eval=use_g_eval,
+        )
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = Config.REPORTS_DIR / f"run_{timestamp}"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        log_path = output_dir / "log.jsonl"
+
+        loop = asyncio.new_event_loop()
+        results = loop.run_until_complete(
+            test_runner.run_suite(agent, cases, metrics=metrics, log_path=log_path)
+        )
+        loop.run_until_complete(agent.teardown())
+        loop.close()
+
+        report = build_run_report(results, agent_name, agent_types=agent_types)
+        logger.log_run_summary(report, log_path)
+        markdown_reporter.generate(report, output_dir)
+
+        summary_path = output_dir / "summary.json"
+        with open(summary_path, "w") as f:
+            f.write(report.model_dump_json(indent=2))
+
+        with open(summary_path) as f:
+            return json.load(f)
+
+    except Exception as e:
+        st.error(f"Evaluation failed: {e}")
+        return None
 
 
-# ── Page: Results ─────────────────────────────────────────────────────────────
-elif page == "📊 Results":
-    st.markdown("# 📊 Evaluation Results")
+async def _async_setup_agent(registry, agent_name: str):
+    try:
+        agent = registry.get(agent_name)
+        await agent.setup()
+        return agent
+    except Exception as e:
+        st.error(f"Failed to load agent '{agent_name}': {e}")
+        return None
 
-    if not selected_report_path:
-        st.info("No reports found yet. Run an evaluation first.")
-        st.stop()
 
-    report = load_report(selected_report_path)
-    if not report:
-        st.error("Could not load the selected report.")
-        st.stop()
+# ── Sidebar navigation ──────────────────────────────────────────────────────────
+def _sidebar():
+    with st.sidebar:
+        st.markdown('<div class="logo-text">🧪 Agent Eval Studio</div>', unsafe_allow_html=True)
+        st.markdown('<div class="logo-sub">Production Evaluation Framework</div>', unsafe_allow_html=True)
+        st.markdown("---")
 
-    # Verdict banner
-    if report.suite_passed:
-        st.markdown('<div class="verdict-pass">✅ SUITE PASSED</div>', unsafe_allow_html=True)
-    else:
-        st.markdown('<div class="verdict-fail">❌ SUITE FAILED</div>', unsafe_allow_html=True)
+        pages = [
+            ("🏠", "Dashboard",       "dashboard"),
+            ("▶",  "New Evaluation",  "new_eval"),
+            ("📊", "Results",         "results"),
+            ("🔍", "Test Inspector",  "inspector"),
+            ("📁", "History",         "history"),
+        ]
 
-    # Run metadata
-    mcol1, mcol2, mcol3 = st.columns(3)
-    mcol1.metric("Run ID", report.run_id)
-    mcol2.metric("Agent", report.agent_name)
-    mcol3.metric("Timestamp", report.timestamp[:10])
+        if "page" not in st.session_state:
+            st.session_state.page = "dashboard"
 
-    st.markdown("---")
+        for icon, label, key in pages:
+            active = "active" if st.session_state.page == key else ""
+            if st.button(f"{icon}  {label}", key=f"nav_{key}",
+                         use_container_width=True,
+                         type="secondary" if active else "secondary"):
+                st.session_state.page = key
+                st.rerun()
 
-    # Gauge charts
-    st.markdown("### 🎯 Dimension Scores")
-    g1, g2, g3, g4 = st.columns(4)
-    gauges = [
-        (g1, report.safety_score,     "Safety",     "#f97316"),
-        (g2, report.robustness_score, "Robustness", "#a78bfa"),
-        (g3, report.accuracy_score,   "Accuracy",   "#60a5fa"),
-        (g4, report.relevance_score,  "Relevance",  "#34d399"),
+        st.markdown("---")
+        # Quick status
+        runs = _load_all_runs()
+        st.markdown(f'<div class="metric-label">Total Runs</div><div style="color:#a5b4fc;font-weight:600">{len(runs)}</div>', unsafe_allow_html=True)
+        if runs:
+            latest = runs[0]
+            verdict = "✅ PASS" if latest.get("suite_passed") else "❌ FAIL"
+            st.markdown(f'<div class="metric-label" style="margin-top:0.6rem">Last Run</div><div style="color:#94a3b8;font-size:0.8rem">{verdict} · {latest.get("agent_name","—")}</div>', unsafe_allow_html=True)
+
+        st.markdown("---")
+        st.markdown('<div style="color:#334155;font-size:0.68rem;text-align:center">© 2025 Agent Eval Studio</div>', unsafe_allow_html=True)
+
+
+# ── Page 1: Dashboard ───────────────────────────────────────────────────────────
+def page_dashboard():
+    st.markdown("## 🏠 Dashboard")
+    st.markdown('<div style="color:#64748b;margin-bottom:1.5rem">Real-time performance overview across all evaluation runs.</div>', unsafe_allow_html=True)
+
+    runs = _load_all_runs()
+
+    if not runs:
+        st.info("No evaluation runs yet. Go to **▶ New Evaluation** to get started.", icon="💡")
+        return
+
+    # ── Latest run headline ─────────────────────────────────────────────────
+    latest = runs[0]
+    passed = latest.get("suite_passed", False)
+    verdict_cls = "verdict-pass" if passed else "verdict-fail"
+    verdict_txt = "✅ PASSED" if passed else "❌ FAILED"
+    agent_name  = latest.get("agent_name", "Unknown")
+    overall     = latest.get("overall_score", 0)
+
+    st.markdown(f"""
+    <div class="{verdict_cls}">
+      <div class="verdict-title">{verdict_txt}</div>
+      <div class="verdict-sub">Latest run · Agent: <strong>{agent_name}</strong> · Overall: <strong>{overall:.1f}/10</strong></div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("")
+
+    # ── 4 dimension gauges ──────────────────────────────────────────────────
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: st.plotly_chart(_gauge(latest.get("safety_score", 0),    "🛡 Safety"),    use_container_width=True)
+    with c2: st.plotly_chart(_gauge(latest.get("accuracy_score", 0),  "🎯 Accuracy"),  use_container_width=True)
+    with c3: st.plotly_chart(_gauge(latest.get("robustness_score", 0),"⚡ Robustness"),use_container_width=True)
+    with c4: st.plotly_chart(_gauge(latest.get("relevance_score", 0), "💡 Relevance"), use_container_width=True)
+
+    # ── Summary stat cards ──────────────────────────────────────────────────
+    total  = latest.get("total_tests", 0)
+    passed_n = latest.get("passed_tests", 0)
+    failed_n = latest.get("failed_tests", 0)
+    errors_n = latest.get("error_tests", 0)
+    lat_mean = latest.get("latency", {}).get("mean_ms", 0)
+
+    cols = st.columns(5)
+    cards = [
+        ("Total Tests",    str(total),           ""),
+        ("Passed",         str(passed_n),         "color:#10b981"),
+        ("Failed",         str(failed_n),         "color:#ef4444"),
+        ("Errors",         str(errors_n),         "color:#f59e0b"),
+        ("Avg Latency",    f"{lat_mean:.0f} ms",  ""),
     ]
-    for col, val, title, color in gauges:
-        col.plotly_chart(gauge_fig(val, title, color), use_container_width=True, config={"displayModeBar": False})
+    for col, (label, val, style) in zip(cols, cards):
+        col.markdown(f"""
+        <div class="metric-card">
+          <div class="metric-label">{label}</div>
+          <div class="metric-value" style="{style}">{val}</div>
+        </div>""", unsafe_allow_html=True)
 
-    # Overall score + counts
-    st.markdown("---")
-    st.markdown("### 📈 Summary")
-    s1, s2, s3, s4, s5 = st.columns(5)
-    s1.metric("Overall Score", f"{report.overall_score:.1f} / 10")
-    s2.metric("Total Tests", report.total_tests)
-    s3.metric("✅ Passed", report.passed_tests)
-    s4.metric("❌ Failed", report.failed_tests)
-    s5.metric("⚠️ Errors", report.error_tests)
+    # ── Score trend ─────────────────────────────────────────────────────────
+    if len(runs) > 1:
+        st.markdown('<div class="section-header">📈 Score Trends</div>', unsafe_allow_html=True)
+        df = pd.DataFrame([{
+            "Run": f'#{i+1} {r.get("agent_name","?")}',
+            "Overall":    r.get("overall_score", 0),
+            "Safety":     r.get("safety_score", 0),
+            "Accuracy":   r.get("accuracy_score", 0),
+            "Robustness": r.get("robustness_score", 0),
+            "Relevance":  r.get("relevance_score", 0),
+        } for i, r in enumerate(reversed(runs[-10:]))])
 
-    # Category breakdown chart
-    st.markdown("---")
-    col_left, col_right = st.columns(2)
-    with col_left:
-        st.markdown("### 📊 Pass/Fail by Category")
-        st.plotly_chart(bar_chart(report), use_container_width=True, config={"displayModeBar": False})
-
-    with col_right:
-        st.markdown("### ⏱️ Latency")
-        lat = report.latency
-        c1, c2 = st.columns(2)
-        c1.metric("Mean", f"{lat.mean_ms:.0f} ms")
-        c2.metric("Median", f"{lat.median_ms:.0f} ms")
-        c1.metric("Min", f"{lat.min_ms:.0f} ms")
-        c2.metric("Max", f"{lat.max_ms:.0f} ms")
-
-        st.markdown("### 🔢 Score Weights")
-        wdf = pd.DataFrame({
-            "Dimension": ["Safety", "Robustness", "Accuracy", "Relevance"],
-            "Score": [report.safety_score, report.robustness_score,
-                      report.accuracy_score, report.relevance_score],
-            "Weight": ["×2.0", "×1.5", "×1.0", "×0.75"],
-        })
-        st.dataframe(wdf, use_container_width=True, hide_index=True)
-
-
-# ── Page: Test Details ────────────────────────────────────────────────────────
-elif page == "📋 Test Details":
-    st.markdown("# 📋 Test Details")
-
-    if not selected_report_path:
-        st.info("No reports found yet. Run an evaluation first.")
-        st.stop()
-
-    report = load_report(selected_report_path)
-    if not report:
-        st.error("Could not load the selected report.")
-        st.stop()
-
-    # Filters
-    f1, f2, f3 = st.columns(3)
-    with f1:
-        status_filter = st.selectbox("Status", ["All", "Pass", "Fail", "Error"])
-    with f2:
-        cat_filter = st.selectbox("Category", ["All", "normal", "edge", "adversarial", "safety"])
-    with f3:
-        min_score, max_score = st.slider("Score range", 0.0, 10.0, (0.0, 10.0), 0.5)
-
-    # Build DataFrame
-    rows = []
-    for r in report.results:
-        if r.error:
-            status = "Error"
-        elif r.eval_result.passed:
-            status = "Pass"
-        else:
-            status = "Fail"
-
-        if status_filter != "All" and status != status_filter:
-            continue
-        if cat_filter != "All" and r.test_case.category != cat_filter:
-            continue
-        score = r.eval_result.score
-        if not (min_score <= score <= max_score):
-            continue
-
-        rows.append({
-            "ID": r.test_case.id,
-            "Category": r.test_case.category,
-            "Score": round(score, 1),
-            "Status": status,
-            "Method": r.eval_result.method,
-            "Duration (ms)": round(r.duration_ms, 0),
-            "Input": r.test_case.input[:80] + ("…" if len(r.test_case.input) > 80 else ""),
-            "Rationale": r.eval_result.rationale[:120] + ("…" if len(r.eval_result.rationale) > 120 else ""),
-        })
-
-    if not rows:
-        st.warning("No results match the current filters.")
-    else:
-        df = pd.DataFrame(rows)
-        st.markdown(f"**{len(rows)} results**")
-
-        st.dataframe(
-            df,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Score": st.column_config.ProgressColumn(
-                    "Score", min_value=0, max_value=10, format="%.1f"
-                ),
-                "Status": st.column_config.TextColumn("Status"),
+        fig = px.line(
+            df.melt(id_vars="Run", value_vars=["Overall","Safety","Accuracy","Robustness","Relevance"]),
+            x="Run", y="value", color="variable", markers=True,
+            color_discrete_map={
+                "Overall": "#818cf8", "Safety": "#10b981",
+                "Accuracy": "#f59e0b", "Robustness": "#60a5fa", "Relevance": "#c084fc",
             },
         )
+        fig.update_layout(
+            height=300,
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            legend={"bgcolor": "rgba(0,0,0,0)", "font": {"color": "#94a3b8"}},
+            xaxis={"tickcolor":"#334155","color":"#64748b","gridcolor":"rgba(99,102,241,0.06)"},
+            yaxis={"range":[0,10.5],"tickcolor":"#334155","color":"#64748b","gridcolor":"rgba(99,102,241,0.06)"},
+            font={"family":"Inter"},
+            margin={"l":0,"r":0,"t":10,"b":0},
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
-        # Expandable drilldown
-        st.markdown("---")
-        st.markdown("### 🔍 Drill Down")
-        test_ids = [r.test_case.id for r in report.results]
-        selected_id = st.selectbox("Select a test case to inspect", test_ids)
-        matching = [r for r in report.results if r.test_case.id == selected_id]
-        if matching:
-            r = matching[0]
-            d1, d2 = st.columns(2)
-            with d1:
-                st.markdown("**Input**")
-                st.info(r.test_case.input)
-                st.markdown("**Expected Behavior**")
-                st.info(r.test_case.expected_behavior)
-            with d2:
-                st.markdown("**Agent Response**")
-                st.warning(r.agent_response if r.agent_response else "(empty — agent error)")
-                st.markdown("**Evaluation Rationale**")
-                status_fn = st.success if r.eval_result.passed else st.error
-                status_fn(f"Score {r.eval_result.score:.1f}/10 — {r.eval_result.rationale}")
-            if r.error:
-                st.error(f"⚠️ Agent Error: {r.error}")
-
-
-# ── Page: Report History ──────────────────────────────────────────────────────
-elif page == "📁 Report History":
-    st.markdown("# 📁 Report History")
-
-    all_reports = list_reports()
-    if not all_reports:
-        st.info("No reports found. Run an evaluation first.")
-        st.stop()
-
-    history_rows = []
-    for label, path in all_reports:
-        rpt = load_report(path)
-        if not rpt:
-            continue
-        history_rows.append({
-            "Run ID": rpt.run_id,
-            "Timestamp": rpt.timestamp[:19].replace("T", " "),
-            "Agent": rpt.agent_name,
-            "Overall": round(rpt.overall_score, 2),
-            "Safety": round(rpt.safety_score, 2),
-            "Robustness": round(rpt.robustness_score, 2),
-            "Accuracy": round(rpt.accuracy_score, 2),
-            "Tests": rpt.total_tests,
-            "Passed": rpt.passed_tests,
-            "Verdict": "✅ Pass" if rpt.suite_passed else "❌ Fail",
+    # ── Recent runs table ───────────────────────────────────────────────────
+    st.markdown('<div class="section-header">🕒 Recent Runs</div>', unsafe_allow_html=True)
+    table_data = []
+    for r in runs[:8]:
+        table_data.append({
+            "Run ID":    r.get("run_id", "?"),
+            "Agent":     r.get("agent_name", "?"),
+            "Types":     ", ".join(r.get("agent_types", [])),
+            "Verdict":   "✅ PASS" if r.get("suite_passed") else "❌ FAIL",
+            "Overall":   f'{r.get("overall_score", 0):.1f}',
+            "Safety":    f'{r.get("safety_score", 0):.1f}',
+            "Accuracy":  f'{r.get("accuracy_score", 0):.1f}',
+            "Timestamp": r.get("timestamp", "")[:19].replace("T", " "),
         })
+    st.dataframe(pd.DataFrame(table_data), use_container_width=True, hide_index=True)
 
-    df_hist = pd.DataFrame(history_rows)
-    st.dataframe(
-        df_hist,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Overall":    st.column_config.ProgressColumn("Overall",    min_value=0, max_value=10, format="%.2f"),
-            "Safety":     st.column_config.ProgressColumn("Safety",     min_value=0, max_value=10, format="%.2f"),
-            "Robustness": st.column_config.ProgressColumn("Robustness", min_value=0, max_value=10, format="%.2f"),
-            "Accuracy":   st.column_config.ProgressColumn("Accuracy",   min_value=0, max_value=10, format="%.2f"),
-        },
+
+# ── Page 2: New Evaluation ─────────────────────────────────────────────────────
+def page_new_eval():
+    st.markdown("## ▶ New Evaluation")
+    st.markdown('<div style="color:#64748b;margin-bottom:1.5rem">Configure and launch an evaluation run against your agent.</div>', unsafe_allow_html=True)
+
+    from src.evaluation.metric_selector import (
+        AGENT_TYPE_LABELS, metric_names_for_types, METRIC_DESCRIPTIONS
     )
 
-    # Score trend over time
-    if len(history_rows) > 1:
-        st.markdown("---")
-        st.markdown("### 📉 Score Trends")
-        df_trend = df_hist[["Timestamp", "Overall", "Safety", "Robustness", "Accuracy"]].copy()
-        df_trend = df_trend.iloc[::-1].reset_index(drop=True)  # oldest first
+    col_form, col_info = st.columns([1.6, 1])
 
-        trend_fig = go.Figure()
-        colors = {"Overall": "#ffffff", "Safety": "#f97316", "Robustness": "#a78bfa", "Accuracy": "#60a5fa"}
-        for col, color in colors.items():
-            trend_fig.add_trace(go.Scatter(
-                x=df_trend["Timestamp"], y=df_trend[col],
-                name=col, line=dict(color=color, width=2),
-                mode="lines+markers",
-            ))
-        trend_fig.update_layout(
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            font_color="#e2e8f0",
-            legend=dict(bgcolor="rgba(0,0,0,0)"),
-            margin=dict(t=10, b=20, l=10, r=10),
-            height=320,
-            xaxis=dict(gridcolor="#334155"),
-            yaxis=dict(gridcolor="#334155", range=[0, 10]),
+    with col_form:
+        st.markdown('<div class="section-header">🤖 Agent Configuration</div>', unsafe_allow_html=True)
+
+        agent_name = st.text_input("Agent Name", placeholder="e.g. simple_chatbot, openai_agent", key="eval_agent")
+
+        type_options = list(AGENT_TYPE_LABELS.values())
+        type_keys    = list(AGENT_TYPE_LABELS.keys())
+        selected_labels = st.multiselect(
+            "Agent Type(s)",
+            options=type_options,
+            default=["Simple Chatbot"],
+            help="Select one or more agent types. Metrics are automatically activated based on selection.",
         )
-        st.plotly_chart(trend_fig, use_container_width=True, config={"displayModeBar": False})
+        selected_types = [k for k, v in AGENT_TYPE_LABELS.items() if v in selected_labels]
+
+        st.markdown('<div class="section-header">🧪 Test Suite</div>', unsafe_allow_html=True)
+
+        cat_cols = st.columns(4)
+        categories = []
+        with cat_cols[0]:
+            if st.checkbox("Normal",      value=True):  categories.append("normal")
+        with cat_cols[1]:
+            if st.checkbox("Edge Case",   value=True):  categories.append("edge")
+        with cat_cols[2]:
+            if st.checkbox("Adversarial", value=True):  categories.append("adversarial")
+        with cat_cols[3]:
+            if st.checkbox("Safety",      value=True):  categories.append("safety")
+
+        judge_model = st.selectbox(
+            "Judge Model",
+            ["gemini-2.0-flash", "gemini-2.0-pro-exp", "gemini-1.5-flash", "gemini-1.5-pro"],
+            help="Gemini model used as the LLM-as-judge evaluator.",
+        )
+        os.environ["JUDGE_MODEL_FAST"] = judge_model
+        os.environ["JUDGE_MODEL_SLOW"] = judge_model
+
+        st.markdown('<div class="section-header">⚙ Advanced Options</div>', unsafe_allow_html=True)
+        use_g_eval = st.checkbox("Enable Custom Criteria (GEval)", value=False)
+        custom_criteria = ""
+        if use_g_eval:
+            custom_criteria = st.text_area(
+                "Custom Evaluation Criteria",
+                placeholder="e.g. Evaluate whether the response is concise—ideally under 100 words—while fully addressing the user's question.",
+                height=90,
+            )
+
+        st.markdown("")
+        run_btn = st.button("🚀 Launch Evaluation", use_container_width=True, type="primary")
+
+    with col_info:
+        st.markdown('<div class="section-header">📏 Active Metrics</div>', unsafe_allow_html=True)
+
+        if selected_types:
+            active = metric_names_for_types(selected_types, include_g_eval=use_g_eval)
+            for metric_name in active:
+                desc = METRIC_DESCRIPTIONS.get(metric_name, "")
+                st.markdown(f"""
+                <div style="background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.15);border-radius:10px;padding:0.7rem 0.9rem;margin-bottom:0.5rem">
+                  <div style="font-size:0.8rem;font-weight:600;color:#a5b4fc">{metric_name}</div>
+                  <div style="font-size:0.7rem;color:#64748b;margin-top:0.2rem">{desc}</div>
+                </div>""", unsafe_allow_html=True)
+        else:
+            st.info("Select at least one agent type to see active metrics.")
+
+        st.markdown('<div class="section-header">ℹ Scoring</div>', unsafe_allow_html=True)
+        st.markdown("""
+        <div style="font-size:0.75rem;color:#64748b;line-height:1.7">
+        • Scores: <strong style="color:#94a3b8">0–10</strong> (higher = better)<br>
+        • Suite passes when: <strong style="color:#94a3b8">Overall ≥ 7.0</strong> AND <strong style="color:#94a3b8">Safety ≥ 8.5</strong><br>
+        • Skipped metrics: field missing from test case<br>
+        • Safety weight: <strong style="color:#94a3b8">2.0×</strong> (highest priority)
+        </div>""", unsafe_allow_html=True)
+
+    if run_btn:
+        if not agent_name:
+            st.error("Please enter an agent name.")
+            return
+        if not selected_types:
+            st.error("Please select at least one agent type.")
+            return
+        if not categories:
+            st.error("Please select at least one test category.")
+            return
+
+        with st.spinner("🔄 Running evaluation — this may take a few minutes..."):
+            progress = st.progress(0, text="Initialising...")
+            progress.progress(10, text="Loading agent...")
+            result = _run_evaluation_sync(
+                agent_name, selected_types, categories, custom_criteria, use_g_eval
+            )
+            progress.progress(100, text="Complete!")
+
+        if result:
+            st.session_state["last_result"] = result
+            st.success("✅ Evaluation complete! Switching to Results page...")
+            st.session_state.page = "results"
+            st.rerun()
+
+
+# ── Page 3: Results ──────────────────────────────────────────────────────────--
+def page_results():
+    st.markdown("## 📊 Results")
+    st.markdown('<div style="color:#64748b;margin-bottom:1rem">Detailed breakdown of the latest evaluation run.</div>', unsafe_allow_html=True)
+
+    run = st.session_state.get("last_result") or _load_latest_run()
+    if not run:
+        st.info("No results yet. Run an evaluation first.", icon="💡")
+        return
+
+    # Header
+    passed = run.get("suite_passed", False)
+    verdict_cls = "verdict-pass" if passed else "verdict-fail"
+    verdict_txt = "✅ SUITE PASSED" if passed else "❌ SUITE FAILED"
+    st.markdown(f"""
+    <div class="{verdict_cls}">
+      <div class="verdict-title">{verdict_txt}</div>
+      <div class="verdict-sub">
+        Agent: <strong>{run.get("agent_name","?")}</strong> ·
+        Types: {", ".join(run.get("agent_types",[]))} ·
+        Overall: <strong>{run.get("overall_score",0):.1f}/10</strong> ·
+        {run.get("passed_tests",0)} passed / {run.get("failed_tests",0)} failed / {run.get("error_tests",0)} errors
+      </div>
+    </div>""", unsafe_allow_html=True)
+    st.markdown("")
+
+    # Dimension gauges
+    c1, c2, c3, c4 = st.columns(4)
+    with c1: st.plotly_chart(_gauge(run.get("safety_score", 0),    "🛡 Safety"),    use_container_width=True)
+    with c2: st.plotly_chart(_gauge(run.get("accuracy_score", 0),  "🎯 Accuracy"),  use_container_width=True)
+    with c3: st.plotly_chart(_gauge(run.get("robustness_score", 0),"⚡ Robustness"),use_container_width=True)
+    with c4: st.plotly_chart(_gauge(run.get("relevance_score", 0), "💡 Relevance"), use_container_width=True)
+
+    # Per-metric aggregate bar chart
+    results = run.get("results", [])
+    if results:
+        # Aggregate metric scores across all test cases
+        metric_agg: dict[str, list[float]] = {}
+        for r in results:
+            for mname, mdata in (r.get("eval_result", {}).get("metric_scores", {}) or {}).items():
+                if not mdata.get("skipped"):
+                    metric_agg.setdefault(mname, []).append(mdata.get("score", 0) * 10)
+
+        if metric_agg:
+            avg_metrics = {k: {"score": sum(v)/len(v)/10, "skipped": False} for k, v in metric_agg.items()}
+            st.markdown('<div class="section-header">📐 Per-Metric Averages</div>', unsafe_allow_html=True)
+            st.plotly_chart(_metric_bar_chart(avg_metrics), use_container_width=True)
+
+    # Test case results table
+    st.markdown('<div class="section-header">🗂 Test Cases</div>', unsafe_allow_html=True)
+
+    rows = []
+    for i, r in enumerate(results):
+        tc = r.get("test_case", {})
+        er = r.get("eval_result", {})
+        rows.append({
+            "#":          i + 1,
+            "Input":      tc.get("input", "")[:60] + ("…" if len(tc.get("input","")) > 60 else ""),
+            "Category":   tc.get("category", "?"),
+            "Status":     "✅ Pass" if er.get("passed") else ("⚠ Error" if r.get("error") else "❌ Fail"),
+            "Score":      f'{er.get("score", 0):.1f}',
+            "Method":     er.get("method", "?"),
+            "Duration":   f'{r.get("duration_ms", 0):.0f}ms',
+        })
+
+    df = pd.DataFrame(rows)
+    st.session_state["result_rows"] = results
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+    # Export
+    col_dl1, col_dl2 = st.columns([1, 5])
+    with col_dl1:
+        st.download_button(
+            "⬇ Download JSON",
+            data=json.dumps(run, indent=2, default=str),
+            file_name=f"eval_{run.get('run_id','?')}.json",
+            mime="application/json",
+        )
+
+
+# ── Page 4: Test Inspector ─────────────────────────────────────────────────────
+def page_inspector():
+    st.markdown("## 🔍 Test Inspector")
+    st.markdown('<div style="color:#64748b;margin-bottom:1rem">Drill down into individual test cases and metric rationales.</div>', unsafe_allow_html=True)
+
+    run = st.session_state.get("last_result") or _load_latest_run()
+    if not run:
+        st.info("No results to inspect. Run an evaluation first.", icon="💡")
+        return
+
+    results = run.get("results", [])
+    if not results:
+        st.warning("No test results found in last run.")
+        return
+
+    # Selector
+    options = [f"#{i+1} [{r.get('test_case',{}).get('category','?')}] {r.get('test_case',{}).get('input','')[:55]}" for i, r in enumerate(results)]
+    selected = st.selectbox("Select Test Case", options)
+    idx = options.index(selected)
+    r = results[idx]
+
+    tc = r.get("test_case", {})
+    er = r.get("eval_result", {})
+    passed = er.get("passed", False)
+
+    # Status banner
+    if r.get("error"):
+        st.error(f"⚠ Agent Error: {r.get('error')}")
+    elif passed:
+        st.success(f"✅ PASSED · Score: {er.get('score',0):.1f}/10 · Method: {er.get('method','?')}")
+    else:
+        st.error(f"❌ FAILED · Score: {er.get('score',0):.1f}/10 · Method: {er.get('method','?')}")
+
+    # Content comparison
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown('<div class="section-header">📥 Input</div>', unsafe_allow_html=True)
+        st.code(tc.get("input", "—"), language=None)
+        st.markdown('<div class="section-header">🎯 Expected Behavior</div>', unsafe_allow_html=True)
+        st.code(tc.get("expected_behavior", "—"), language=None)
+
+    with c2:
+        st.markdown('<div class="section-header">🤖 Agent Response</div>', unsafe_allow_html=True)
+        resp = r.get("agent_response", "[no response]")
+        st.code(resp if resp else "[empty]", language=None)
+        st.markdown('<div class="section-header">💬 Rationale</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="background:rgba(0,0,0,0.2);border-radius:8px;padding:0.8rem;font-size:0.8rem;color:#94a3b8">{er.get("rationale","—")}</div>', unsafe_allow_html=True)
+
+    # Per-metric breakdown
+    metric_scores = er.get("metric_scores") or {}
+    if metric_scores:
+        st.markdown('<div class="section-header">📐 Metric Breakdown</div>', unsafe_allow_html=True)
+        for mname, mdata in metric_scores.items():
+            if isinstance(mdata, dict):
+                score  = mdata.get("score", 0)
+                s10    = score * 10
+                mpassed= mdata.get("passed", False)
+                reason = mdata.get("reason", "")
+                skipped= mdata.get("skipped", False)
+
+                if skipped:
+                    badge = '<span class="tag tag-skip">⏭ Skipped</span>'
+                elif mpassed:
+                    badge = '<span class="tag tag-pass">✅ Passed</span>'
+                else:
+                    badge = '<span class="tag tag-fail">❌ Failed</span>'
+
+                with st.expander(f"{mname}  •  {s10:.1f}/10  {badge if not skipped else '⏭ Skipped'}", expanded=not skipped):
+                    if skipped:
+                        st.markdown(f'<span style="color:#fcd34d;font-size:0.8rem">⏭ {mdata.get("skip_reason","Missing required fields")}</span>', unsafe_allow_html=True)
+                    else:
+                        bar_color = _score_color(s10)
+                        st.progress(score, text="")
+                        st.markdown(f'<div style="font-size:0.78rem;color:#94a3b8;margin-top:0.4rem">{reason}</div>', unsafe_allow_html=True)
+
+    # Metadata
+    with st.expander("ℹ Test Case Metadata"):
+        meta = {
+            "ID":       tc.get("id", "?"),
+            "Category": tc.get("category", "?"),
+            "Weight":   tc.get("weight", 1.0),
+            "Tags":     ", ".join(tc.get("tags", [])),
+            "Duration": f'{r.get("duration_ms",0):.0f}ms',
+            "Model":    er.get("model_used", "?"),
+        }
+        cols = st.columns(3)
+        for i, (k, v) in enumerate(meta.items()):
+            cols[i % 3].markdown(f'<div class="metric-label">{k}</div><div style="color:#e2e8f0;font-size:0.85rem">{v}</div>', unsafe_allow_html=True)
+
+
+# ── Page 5: History ────────────────────────────────────────────────────────────
+def page_history():
+    st.markdown("## 📁 History")
+    st.markdown('<div style="color:#64748b;margin-bottom:1rem">All past evaluation runs with trend analysis.</div>', unsafe_allow_html=True)
+
+    runs = _load_all_runs()
+    if not runs:
+        st.info("No past runs found.", icon="💡")
+        return
+
+    # Summary table
+    st.markdown('<div class="section-header">📋 All Runs</div>', unsafe_allow_html=True)
+    rows = []
+    for r in runs:
+        rows.append({
+            "Run ID":     r.get("run_id", "?"),
+            "Timestamp":  r.get("timestamp", "")[:19].replace("T", " "),
+            "Agent":      r.get("agent_name", "?"),
+            "Types":      ", ".join(r.get("agent_types", [])),
+            "Verdict":    "✅ PASS" if r.get("suite_passed") else "❌ FAIL",
+            "Overall":    round(r.get("overall_score", 0), 2),
+            "Safety":     round(r.get("safety_score", 0), 2),
+            "Accuracy":   round(r.get("accuracy_score", 0), 2),
+            "Robustness": round(r.get("robustness_score", 0), 2),
+            "Relevance":  round(r.get("relevance_score", 0), 2),
+            "Tests":      f'{r.get("passed_tests",0)}✓ / {r.get("failed_tests",0)}✗',
+            "Avg Lat (ms)": round(r.get("latency", {}).get("mean_ms", 0)),
+        })
+
+    df = pd.DataFrame(rows)
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+    # Trend chart
+    if len(runs) > 1:
+        st.markdown('<div class="section-header">📈 Score Trends Over Time</div>', unsafe_allow_html=True)
+        trend_df = pd.DataFrame([{
+            "Run":        f'#{i+1}',
+            "Overall":    r.get("overall_score", 0),
+            "Safety":     r.get("safety_score", 0),
+            "Accuracy":   r.get("accuracy_score", 0),
+            "Robustness": r.get("robustness_score", 0),
+            "Relevance":  r.get("relevance_score", 0),
+        } for i, r in enumerate(reversed(runs))])
+
+        fig = px.line(
+            trend_df.melt(id_vars="Run", value_vars=["Overall","Safety","Accuracy","Robustness","Relevance"]),
+            x="Run", y="value", color="variable", markers=True,
+            color_discrete_map={
+                "Overall":"#818cf8","Safety":"#10b981",
+                "Accuracy":"#f59e0b","Robustness":"#60a5fa","Relevance":"#c084fc",
+            },
+        )
+        fig.update_layout(
+            height=320,
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            legend={"bgcolor":"rgba(0,0,0,0)","font":{"color":"#94a3b8"}},
+            xaxis={"tickcolor":"#334155","color":"#64748b","gridcolor":"rgba(99,102,241,0.06)"},
+            yaxis={"range":[0,10.5],"tickcolor":"#334155","color":"#64748b","gridcolor":"rgba(99,102,241,0.06)"},
+            font={"family":"Inter"},
+            margin={"l":0,"r":0,"t":10,"b":0},
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    # Download all
+    st.download_button(
+        "⬇ Export All Runs (JSON)",
+        data=json.dumps(runs, indent=2, default=str),
+        file_name="all_eval_runs.json",
+        mime="application/json",
+    )
+
+    # Pass/fail distribution
+    if len(runs) > 2:
+        st.markdown('<div class="section-header">🥧 Pass / Fail Distribution</div>', unsafe_allow_html=True)
+        pass_count = sum(1 for r in runs if r.get("suite_passed"))
+        fail_count = len(runs) - pass_count
+        pie = go.Figure(go.Pie(
+            labels=["Passed", "Failed"],
+            values=[pass_count, fail_count],
+            marker_colors=["rgba(16,185,129,0.7)", "rgba(239,68,68,0.7)"],
+            hole=0.5,
+            textinfo="label+percent",
+            textfont={"family":"Inter","size":13,"color":"#e2e8f0"},
+        ))
+        pie.update_layout(
+            height=280,
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            showlegend=False,
+            margin={"l":0,"r":0,"t":10,"b":0},
+            font={"family":"Inter"},
+        )
+        col_pie, _ = st.columns([1, 2])
+        with col_pie:
+            st.plotly_chart(pie, use_container_width=True)
+
+
+# ── Router ─────────────────────────────────────────────────────────────────────
+def main():
+    _sidebar()
+    page = st.session_state.get("page", "dashboard")
+    {
+        "dashboard": page_dashboard,
+        "new_eval":  page_new_eval,
+        "results":   page_results,
+        "inspector": page_inspector,
+        "history":   page_history,
+    }.get(page, page_dashboard)()
+
+
+if __name__ == "__main__":
+    main()

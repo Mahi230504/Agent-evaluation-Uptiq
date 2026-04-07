@@ -1,0 +1,10 @@
+{
+  "include": ["."],
+  "exclude": ["deepeval", ".venv", "__pycache__"],
+  "pythonVersion": "3.11",
+  "pythonPlatform": "Darwin",
+  "venvPath": ".",
+  "typeCheckingMode": "basic",
+  "reportMissingImports": false,
+  "reportMissingModuleSource": false
+}

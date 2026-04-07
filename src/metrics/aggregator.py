@@ -81,7 +81,11 @@ def weighted_aggregate(scores: dict[str, float], weights: dict[str, float]) -> f
     return round(total_weighted / total_weight, 2)
 
 
-def build_run_report(results: list[TestResult], agent_name: str) -> RunReport:
+def build_run_report(
+    results: list[TestResult],
+    agent_name: str,
+    agent_types: list[str] | None = None,
+) -> RunReport:
     """
     Build a complete RunReport from all test results.
 
@@ -127,6 +131,7 @@ def build_run_report(results: list[TestResult], agent_name: str) -> RunReport:
         run_id=str(uuid.uuid4())[:8],
         timestamp=datetime.now(timezone.utc).isoformat(),
         agent_name=agent_name,
+        agent_types=agent_types or ["simple"],
         total_tests=len(results),
         passed_tests=len(passed_results),
         failed_tests=len(failed_results),

@@ -5,10 +5,20 @@ CLI interface for running evaluations against AI agents.
 
 import argparse
 import asyncio
-import json
 import sys
+import os
 from datetime import datetime
 from pathlib import Path
+
+# Fix module resolution: add project root to path
+PROJECT_ROOT = Path(__file__).resolve().parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+# Ensure src is discoverable
+src_path = os.path.join(str(PROJECT_ROOT), "src")
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
 
 from src.config import Config
 
@@ -20,20 +30,16 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python main.py --agent simple_chatbot                    # Run all tests with simple_chatbot
-  python main.py --agent simple_chatbot --category safety  # Run only safety tests
-  python main.py --agent simple_chatbot --dry-run          # Dry run (load + validate only)
-  python main.py --agent openai_agent                      # Run with OpenAI agent
-  python main.py --dashboard                               # Launch dashboard from latest report
-  python main.py --list-agents                             # List registered agents
+  python main.py --agent simple_chatbot                          # Run all tests
+  python main.py --agent simple_chatbot --category safety        # Safety tests only
+  python main.py --agent simple_chatbot --dry-run                # Validate only
+  python main.py --agent simple_chatbot --types rag tool         # RAG + Tool metrics
+  python main.py --list-agents                                   # List registered agents
+  streamlit run streamlit_app.py                                 # Launch UI
         """,
     )
 
-    parser.add_argument(
-        "--agent",
-        type=str,
-        help="Name of the agent to evaluate (use --list-agents to see options)",
-    )
+    parser.add_argument("--agent", type=str, help="Agent name to evaluate")
     parser.add_argument(
         "--category",
         type=str,
@@ -41,25 +47,22 @@ Examples:
         help="Run only a specific test category",
     )
     parser.add_argument(
+        "--types",
+        nargs="+",
+        choices=["simple", "rag", "tool"],
+        default=["simple"],
+        help="Agent type(s) — determines which metrics are activated (default: simple)",
+    )
+    parser.add_argument(
         "--output-dir",
         type=str,
         default=None,
-        help="Custom output directory for reports (default: reports/run_TIMESTAMP/)",
+        help="Custom output directory for reports",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Load and validate test cases without running the evaluation",
-    )
-    parser.add_argument(
-        "--dashboard",
-        action="store_true",
-        help="Launch the Flask dashboard to view the latest report",
-    )
-    parser.add_argument(
-        "--streamlit",
-        action="store_true",
-        help="Launch the Streamlit dashboard (modern UI)",
+        help="Load and validate test cases without running evaluation",
     )
     parser.add_argument(
         "--list-agents",
@@ -77,6 +80,7 @@ async def run_evaluation(args: argparse.Namespace) -> None:
     from src.runner import test_runner
     from src.metrics.aggregator import build_run_report
     from src.reporting import markdown_reporter, logger
+    from src.evaluation.metric_selector import select_metrics
 
     # Validate config
     warnings = Config.validate()
@@ -100,11 +104,10 @@ async def run_evaluation(args: argparse.Namespace) -> None:
         await agent.teardown()
         return
 
-    # Dry run — just validate and exit
+    # Dry run — validate and exit
     if args.dry_run:
         print(f"\n✅ Dry run complete: {len(cases)} test cases loaded and validated.")
-        print("\nTest cases by category:")
-        cats = {}
+        cats: dict[str, int] = {}
         for c in cases:
             cats[c.category] = cats.get(c.category, 0) + 1
         for cat, count in sorted(cats.items()):
@@ -112,13 +115,15 @@ async def run_evaluation(args: argparse.Namespace) -> None:
         await agent.teardown()
         return
 
+    # Select metrics based on agent types
+    agent_types = args.types
+    metrics = select_metrics(agent_types)
+    print(f"\n📐 Agent types: {', '.join(agent_types)}")
+    print(f"📏 Active metrics: {', '.join(m.name for m in metrics)}")
+
     # Prepare output directory
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    if args.output_dir:
-        output_dir = Path(args.output_dir)
-    else:
-        output_dir = Config.REPORTS_DIR / f"run_{timestamp}"
-
+    output_dir = Path(args.output_dir) if args.output_dir else Config.REPORTS_DIR / f"run_{timestamp}"
     output_dir.mkdir(parents=True, exist_ok=True)
     log_path = output_dir / "log.jsonl"
 
@@ -126,13 +131,12 @@ async def run_evaluation(args: argparse.Namespace) -> None:
     print(f"\n🚀 Running {len(cases)} test cases against '{agent.agent_name}'...")
     print(f"   Max concurrent: {Config.MAX_CONCURRENT}")
     print(f"   Timeout per test: {Config.AGENT_TIMEOUT_SECONDS}s")
-    print(f"   Max retries: {Config.MAX_RETRIES}")
 
-    results = await test_runner.run_suite(agent, cases, log_path=log_path)
+    results = await test_runner.run_suite(agent, cases, metrics=metrics, log_path=log_path)
 
     # Build the report
     print("\n📊 Computing scores...")
-    report = build_run_report(results, agent.agent_name)
+    report = build_run_report(results, agent.agent_name, agent_types=agent_types)
 
     # Log summary
     logger.log_run_summary(report, log_path)
@@ -163,7 +167,6 @@ async def run_evaluation(args: argparse.Namespace) -> None:
     print(f"📊 Summary: {summary_path}")
     print(f"📝 Log:     {log_path}")
 
-    # Cleanup
     await agent.teardown()
 
 
@@ -171,7 +174,6 @@ def main():
     """Main entry point."""
     args = parse_args()
 
-    # Handle --list-agents
     if args.list_agents:
         from agents import agent_registry
         agents = agent_registry.list_agents()
@@ -180,27 +182,11 @@ def main():
             print(f"  • {name}")
         return
 
-    # Handle --dashboard
-    if args.dashboard:
-        from src.reporting.dashboard import create_app
-        app = create_app()
-        print("🌐 Dashboard running at http://localhost:5000")
-        app.run(host="0.0.0.0", port=5000, debug=False)
-        return
-
-    # Handle --streamlit
-    if args.streamlit:
-        import subprocess
-        print("🌐 Launching Streamlit Dashboard...")
-        subprocess.run(["streamlit", "run", "src/reporting/streamlit_app.py"])
-        return
-
-    # Require --agent for evaluation
     if not args.agent:
-        print("Error: --agent is required for evaluation. Use --list-agents to see options.")
+        print("Error: --agent is required. Use --list-agents to see options.")
+        print("Tip: Use 'streamlit run streamlit_app.py' to launch the interactive UI.")
         sys.exit(1)
 
-    # Run the async evaluation
     asyncio.run(run_evaluation(args))
 
 

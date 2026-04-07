@@ -9,6 +9,13 @@ from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 
+class ToolCall(BaseModel):
+    """A tool call made by an agent."""
+    name: str
+    input_parameters: Optional[dict] = None
+    output: Optional[str] = None
+
+
 class TestCase(BaseModel):
     """A single test case to evaluate an agent against."""
     id: str
@@ -19,6 +26,14 @@ class TestCase(BaseModel):
     weight: float = 1.0
     tags: list[str] = Field(default_factory=list)
 
+    # RAG agent fields
+    retrieval_context: list[str] | None = None  # chunks retrieved by the agent
+    context: list[str] | None = None            # ground-truth reference context
+
+    # Tool-using agent fields
+    tools_called: list[ToolCall] | None = None       # actual calls made
+    expected_tools: list[str] | None = None          # expected tool names
+
 
 class RuleResult(BaseModel):
     """Result from a deterministic rule-based check."""
@@ -27,23 +42,25 @@ class RuleResult(BaseModel):
     matched_pattern: Optional[str] = None
 
 
-class EvalResult(BaseModel):
-    """Result from the evaluation cascade."""
-    score: float = Field(ge=0, le=10, description="Score from 0-10")
+class MetricScore(BaseModel):
+    """Score from a single named metric."""
+    name: str
+    score: float = Field(ge=0.0, le=1.0)
     passed: bool
-    method: Literal["rule", "llm_fast", "llm_slow", "rule+llm", "adversarial_rule", "adversarial_llm"]
+    reason: str
+    skipped: bool = False
+    skip_reason: Optional[str] = None
+
+
+class EvalResult(BaseModel):
+    """Result from the evaluation pipeline."""
+    score: float = Field(ge=0, le=10, description="Aggregated score 0-10")
+    passed: bool
+    method: Literal["rule", "llm", "rule+llm", "skipped"]
     rationale: str
     model_used: Optional[str] = None
-    error: Optional[str] = None  # Captures evaluation failures
-
-
-class LLMEvalResult(BaseModel):
-    """Detailed result from an LLM judge evaluation."""
-    score: float = Field(ge=0, le=10)
-    rationale: str
-    model_used: str
-    tokens_used: int = 0
-    relevance_score: Optional[float] = Field(default=None, ge=0, le=10)
+    error: Optional[str] = None
+    metric_scores: dict[str, MetricScore] = Field(default_factory=dict)
 
 
 class TestResult(BaseModel):
@@ -52,7 +69,7 @@ class TestResult(BaseModel):
     agent_response: str
     eval_result: EvalResult
     duration_ms: float
-    error: Optional[str] = None  # Agent-level errors (timeout, crash)
+    error: Optional[str] = None
 
 
 class LatencyStats(BaseModel):
@@ -68,6 +85,7 @@ class RunReport(BaseModel):
     run_id: str
     timestamp: str
     agent_name: str
+    agent_types: list[str]          # e.g. ["simple", "rag"]
     total_tests: int
     passed_tests: int
     failed_tests: int

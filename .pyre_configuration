@@ -1,0 +1,15 @@
+{
+  "site_package_search_strategy": "pep561",
+  "source_directories": [
+    {
+      "import_root": ".",
+      "source": "."
+    }
+  ],
+  "exclude": [
+    "deepeval/",
+    ".venv/",
+    "__pycache__/"
+  ],
+  "search_path": ["."]
+}

@@ -13,13 +13,15 @@ from src.config import Config
 from src.metrics.schemas import TestCase, TestResult, EvalResult
 from src.runner.retry import call_with_retry, AgentTimeoutError, AgentCallError
 from src.runner.timing import timed_call
-from src.evaluation.cascade_evaluator import evaluate as cascade_evaluate
+from src.evaluation.evaluator import evaluate
+from src.evaluation.metrics.base import BaseEvalMetric
 from src.reporting.logger import log_result
 
 
 async def run_suite(
     agent: AbstractAgent,
     cases: list[TestCase],
+    metrics: list[BaseEvalMetric] | None = None,
     log_path: Path | str | None = None,
 ) -> list[TestResult]:
     """
@@ -38,9 +40,11 @@ async def run_suite(
     """
     semaphore = asyncio.Semaphore(Config.MAX_CONCURRENT)
 
+    _metrics = metrics or []
+
     async def _guarded_run(case: TestCase) -> TestResult:
         async with semaphore:
-            return await _run_single(agent, case)
+            return await _run_single(agent, case, _metrics)
 
     # Run all tests concurrently (bounded by semaphore)
     tasks = [_guarded_run(case) for case in cases]
@@ -55,7 +59,11 @@ async def run_suite(
     return results
 
 
-async def _run_single(agent: AbstractAgent, case: TestCase) -> TestResult:
+async def _run_single(
+    agent: AbstractAgent,
+    case: TestCase,
+    metrics: list[BaseEvalMetric] | None = None,
+) -> TestResult:
     """
     Execute a single test case: run the agent, then evaluate the response.
 
@@ -103,8 +111,8 @@ async def _run_single(agent: AbstractAgent, case: TestCase) -> TestResult:
             error=error_msg,
         )
 
-    # Evaluate the response through the cascade
-    eval_result = await cascade_evaluate(case, agent_response)
+    # Evaluate the response through the metric pipeline
+    eval_result = await evaluate(case, agent_response, metrics or [])
 
     return TestResult(
         test_case=case,
