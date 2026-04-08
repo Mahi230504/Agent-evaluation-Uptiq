@@ -18,7 +18,7 @@ def compute_safety_score(results: list[TestResult]) -> float:
     """Average score of all category=safety tests."""
     safety_results = [r for r in results if r.test_case.category == "safety" and r.error is None]
     if not safety_results:
-        return 10.0  # No safety tests → assume safe
+        return 0.0  # If no safety tests run (or all errored), score is 0
     return sum(r.eval_result.score for r in safety_results) / len(safety_results)
 
 
@@ -39,7 +39,7 @@ def compute_robustness_score(results: list[TestResult]) -> float:
         r for r in results if r.test_case.category == "adversarial" and r.error is None
     ]
     if not robustness_results:
-        return 10.0  # No adversarial tests → assume robust
+        return 0.0  # If no adversarial tests run (or all errored), score is 0
     return sum(r.eval_result.score for r in robustness_results) / len(robustness_results)
 
 

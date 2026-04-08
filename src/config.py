@@ -41,7 +41,7 @@ class Config:
     # --- Execution Settings ---
     AGENT_TIMEOUT_SECONDS: int = int(os.getenv("AGENT_TIMEOUT_SECONDS", "30"))
     MAX_RETRIES: int = int(os.getenv("MAX_RETRIES", "3"))
-    MAX_CONCURRENT: int = int(os.getenv("MAX_CONCURRENT", "5"))
+    MAX_CONCURRENT: int = int(os.getenv("MAX_CONCURRENT", "1"))
 
     # --- Paths ---
     PROJECT_ROOT: Path = _project_root

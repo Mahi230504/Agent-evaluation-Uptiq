@@ -28,12 +28,13 @@ def register(name: str, agent_class: type[AbstractAgent]) -> None:
     _registry[name] = agent_class
 
 
-def get(name: str) -> AbstractAgent:
+def get(name: str, **kwargs) -> AbstractAgent:
     """
     Instantiate and return an agent by its registered name.
 
     Args:
         name: The registered name of the agent.
+        **kwargs: Arguments to pass to the agent constructor.
 
     Returns:
         An instance of the requested agent.
@@ -44,7 +45,7 @@ def get(name: str) -> AbstractAgent:
     if name not in _registry:
         available = ", ".join(sorted(_registry.keys())) or "(none)"
         raise KeyError(f"Unknown agent '{name}'. Available agents: {available}")
-    return _registry[name]()
+    return _registry[name](**kwargs)
 
 
 def list_agents() -> list[str]:
@@ -56,9 +57,11 @@ def _auto_register() -> None:
     """Auto-register built-in agents."""
     from agents.simple_chatbot import SimpleChatbot
     from agents.openai_agent import OpenAIAgent
+    from agents.gemini_agent import GeminiAgent
 
     register("simple_chatbot", SimpleChatbot)
     register("openai_agent", OpenAIAgent)
+    register("gemini_agent", GeminiAgent)
 
 
 # Auto-register on import

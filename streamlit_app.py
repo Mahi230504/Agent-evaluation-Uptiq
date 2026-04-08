@@ -284,7 +284,7 @@ def _load_latest_run() -> dict | None:
     return runs[0] if runs else None
 
 
-def _run_evaluation_sync(agent_name: str, agent_types: list[str],
+def _run_evaluation_sync(agent_name: str, agent_model: str, agent_types: list[str],
                           categories: list[str], custom_criteria: str,
                           use_g_eval: bool) -> dict | None:
     """Run the evaluation pipeline synchronously from Streamlit."""
@@ -297,8 +297,15 @@ def _run_evaluation_sync(agent_name: str, agent_types: list[str],
         from src.evaluation.metric_selector import select_metrics
         from src.config import Config
 
-        agent = asyncio.get_event_loop().run_until_complete(
-            _async_setup_agent(agent_registry, agent_name)
+        # Fix for "no current event loop" in Streamlit threads
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        agent = loop.run_until_complete(
+            _async_setup_agent(agent_registry, agent_name, agent_model)
         )
         if not agent:
             return None
@@ -321,7 +328,6 @@ def _run_evaluation_sync(agent_name: str, agent_types: list[str],
         output_dir.mkdir(parents=True, exist_ok=True)
         log_path = output_dir / "log.jsonl"
 
-        loop = asyncio.new_event_loop()
         results = loop.run_until_complete(
             test_runner.run_suite(agent, cases, metrics=metrics, log_path=log_path)
         )
@@ -344,9 +350,12 @@ def _run_evaluation_sync(agent_name: str, agent_types: list[str],
         return None
 
 
-async def _async_setup_agent(registry, agent_name: str):
+async def _async_setup_agent(registry, agent_name: str, model: str | None = None):
     try:
-        agent = registry.get(agent_name)
+        kwargs = {}
+        if model:
+            kwargs["model"] = model
+        agent = registry.get(agent_name, **kwargs)
         await agent.setup()
         return agent
     except Exception as e:
@@ -512,7 +521,34 @@ def page_new_eval():
     with col_form:
         st.markdown('<div class="section-header">🤖 Agent Configuration</div>', unsafe_allow_html=True)
 
-        agent_name = st.text_input("Agent Name", placeholder="e.g. simple_chatbot, openai_agent", key="eval_agent")
+        from agents import agent_registry
+        agents_list = agent_registry.list_agents()
+        agent_name = st.selectbox(
+            "Target Agent (Model Plugin)",
+            options=agents_list,
+            index=0 if agents_list else None,
+            help="Select the agent/model integration you want to evaluate."
+        )
+
+        agent_model = None
+        if agent_name == "openai_agent":
+            agent_model = st.selectbox(
+                "Model Plugin (OpenAI)",
+                options=["gpt-4o-mini", "gpt-4o", "gpt-3.5-turbo"],
+                help="Select the specific OpenAI model to test."
+            )
+        elif agent_name == "gemini_agent":
+            agent_model = st.selectbox(
+                "Model Plugin (Gemini)",
+                options=["gemini-2.0-flash", "gemini-2.0-pro-exp", "gemini-1.5-flash", "gemini-1.5-pro"],
+                help="Select the specific Gemini model to test."
+            )
+        else:
+            agent_model = st.text_input(
+                "Model Plugin / Version Override",
+                placeholder="default",
+                help="Specify a custom model name if supported by the agent (optional)."
+            )
 
         type_options = list(AGENT_TYPE_LABELS.values())
         type_keys    = list(AGENT_TYPE_LABELS.keys())
@@ -597,7 +633,7 @@ def page_new_eval():
             progress = st.progress(0, text="Initialising...")
             progress.progress(10, text="Loading agent...")
             result = _run_evaluation_sync(
-                agent_name, selected_types, categories, custom_criteria, use_g_eval
+                agent_name, agent_model, selected_types, categories, custom_criteria, use_g_eval
             )
             progress.progress(100, text="Complete!")
 

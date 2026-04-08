@@ -61,6 +61,12 @@ async def call_with_retry(
 
         except Exception as e:
             last_error = e
+            
+            # If we hit a known rate limit code, enforce a longer backoff
+            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                backoff = 15.0 * (2 ** attempt) # 15s, 30s...
+                await asyncio.sleep(backoff)
+                continue
 
         # Exponential backoff before retry (skip on last attempt)
         if attempt < max_retries - 1:
