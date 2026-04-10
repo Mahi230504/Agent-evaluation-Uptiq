@@ -18,7 +18,7 @@ class GeminiAgent(AbstractAgent):
 
     def __init__(
         self,
-        model: str = "gemini-flash-latest",
+        model: str = "gemini-3.1-flash-lite-preview",
         temperature: float = 0.7,
         system_prompt: str = "You are a helpful assistant.",
     ):

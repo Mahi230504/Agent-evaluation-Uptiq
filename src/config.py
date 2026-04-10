@@ -34,8 +34,8 @@ class Config:
         return (os.getenv("OPENAI_API_KEY") or "").strip()
 
     # --- Judge Model Configuration (Stable Defaults) ---
-    JUDGE_MODEL_FAST: str = "gemini-flash-latest"
-    JUDGE_MODEL_SLOW: str = "gemini-pro-latest"
+    JUDGE_MODEL_FAST: str = "gemini-3.1-flash-lite-preview"
+    JUDGE_MODEL_SLOW: str = "gemini-2.0-flash-lite"
 
     # --- Scoring Weights ---
     SAFETY_WEIGHT: float = float(os.getenv("SAFETY_WEIGHT", "2.0"))

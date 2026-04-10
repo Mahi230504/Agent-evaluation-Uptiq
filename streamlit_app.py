@@ -542,7 +542,7 @@ def page_new_eval():
         elif agent_name == "gemini_agent":
             agent_model = st.selectbox(
                 "Model Plugin (Gemini)",
-                options=["gemini-flash-latest", "gemini-pro-latest", "gemini-3.1-flash-lite-preview"],
+                options=["gemini-3.1-flash-lite-preview", "gemini-2.0-flash-lite", "gemini-flash-latest"],
                 index=0,
                 help="Select the specific Gemini model to test."
             )
@@ -578,10 +578,11 @@ def page_new_eval():
 
         judge_model = st.selectbox(
             "Judge Model",
-            ["gemini-flash-latest", "gemini-pro-latest", "gemini-3.1-flash-lite-preview"],
+            ["gemini-3.1-flash-lite-preview", "gemini-2.0-flash-lite", "gemini-flash-latest"],
             index=0,
             help="Gemini model used as the LLM-as-judge evaluator.",
         )
+        # Update config so judges use the selected model
         os.environ["JUDGE_MODEL_FAST"] = judge_model
         os.environ["JUDGE_MODEL_SLOW"] = judge_model
 
@@ -821,25 +822,8 @@ def page_inspector():
 
 # ── Page Chat ──────────────────────────────────────────────────────────────────
 async def _generate_expected_behavior(query: str, judge_model: str) -> str:
-    """Dynamically generate the target expected behavior for a given query to feed into metrics."""
-    from src.evaluation.metrics.base import _call_gemini
-    from src.config import Config
-    import os
-    
-    # Temporarily ensure API key exists, fallback to env
-    if "GEMINI_API_KEY" not in os.environ and Config.GEMINI_API_KEY:
-        os.environ["GEMINI_API_KEY"] = Config.GEMINI_API_KEY
-        
-    prompt = f"""You are an evaluation expert. A user asked a spontaneous question:
-USER INPUT: {query}
-
-Provide a short, 1-2 sentence description of the ideal expected behavior or response characteristics.
-DO NOT ANSWER the question. Describe what a good agent SHOULD do."""
-    try:
-        response = await _call_gemini(prompt, model=judge_model)
-        return response.strip()
-    except Exception as e:
-        return f"Deliver a helpful, polite, and factually accurate response. (Fallback due to error: {e})"
+    """Conserve quota for Student Tier: Return a generic helpful expectation instead of calling the API again."""
+    return "Deliver a helpful, polite, and factually accurate response matching the user's intent."
 
 def page_chat():
     st.markdown("## 💬 Real-time Chat & Eval")
@@ -882,24 +866,24 @@ def page_chat():
                 else:
                     st.info(f"Available: {', '.join(available[:5])}...")
 
-            discovered = st.session_state.get(
-                "discovered_models", 
-                ["gemini-flash-latest", "gemini-pro-latest", "gemini-3.1-flash-lite-preview"]
-            )
-            if "Custom" not in discovered: discovered.append("Custom")
-            
-            selected_model = st.selectbox(
-                "Model Version",
-                options=discovered,
-                index=0,
-                key="chat_model_select"
-            )
-            
-            if selected_model == "Custom":
-                agent_model = st.text_input("Enter Model ID", placeholder="e.g. gemini-1.5-flash-001", key="chat_model_custom")
-            else:
-                agent_model = selected_model
-            
+        discovered = st.session_state.get(
+            "discovered_models", 
+            ["gemini-3.1-flash-lite-preview", "gemini-2.0-flash-lite", "gemini-flash-latest"]
+        )
+        if "Custom" not in discovered: discovered.append("Custom")
+        
+        selected_model = st.selectbox(
+            "Model Version",
+            options=discovered,
+            index=0,
+            key="chat_model_select"
+        )
+        
+        if selected_model == "Custom":
+            agent_model = st.text_input("Enter Model ID", placeholder="e.g. gemini-1.5-flash-001", key="chat_model_custom")
+        else:
+            agent_model = selected_model
+        
         custom_key = st.text_input("Override API Key (optional)", type="password", key="chat_api_key", help="Set this to temporarily override your env file key.")
         if custom_key:
             if "openai" in agent_name:
@@ -910,7 +894,7 @@ def page_chat():
         st.markdown("<hr>", unsafe_allow_html=True)
         judge_model = st.selectbox(
             "Judge Model for Eval",
-            ["gemini-flash-latest", "gemini-pro-latest", "gemini-3.1-flash-lite-preview"],
+            ["gemini-3.1-flash-lite-preview", "gemini-2.0-flash-lite", "gemini-flash-latest"],
             index=0,
             key="chat_judge_model"
         )
