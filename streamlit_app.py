@@ -865,6 +865,7 @@ def page_chat():
         agent_name = st.selectbox("Select Agent", options=agents_list, index=default_idx, key="chat_agent")
         
         agent_model = None
+        agent_model = None
         if agent_name in ("openai_agent", "gemini_agent"):
             st.markdown('<div style="font-size:0.8rem;color:#94a3b8;margin-bottom:0.2rem">Model Selection</div>', unsafe_allow_html=True)
             
@@ -912,6 +913,16 @@ def page_chat():
         )
         os.environ["JUDGE_MODEL_FAST"] = judge_model
         os.environ["JUDGE_MODEL_SLOW"] = judge_model
+
+        # ── System Config Status ──
+        st.markdown("<br>", unsafe_allow_html=True)
+        with st.expander("🛠️ API Arrangement Status"):
+            g_key = Config.get_gemini_key()
+            o_key = Config.get_openai_key()
+            
+            def status(k): return "✅ Active" if k else "❌ Missing"
+            st.markdown(f"**Gemini (retained):** {status(g_key)}")
+            st.markdown(f"**OpenAI:** {status(o_key)}")
 
         if st.button("🗑️ Clear Chat History", use_container_width=True):
             st.session_state.chat_history = []
