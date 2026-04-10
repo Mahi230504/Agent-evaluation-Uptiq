@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 
+from src.config import Config
 from src.metrics.schemas import TestCase, EvalResult, MetricScore
 from src.evaluation.metrics.base import BaseEvalMetric
 from src.evaluation.rule_evaluator import refusal_detected, keyword_filter, pii_leaked
@@ -72,12 +73,22 @@ async def evaluate(
             metric_scores={},
         )
 
-    results: list[MetricScore] = list(
-        await asyncio.gather(
-            *[m.a_measure(case, agent_response) for m in metrics],
-            return_exceptions=False,
+    if Config.MAX_CONCURRENT <= 1:
+        # Sequential mode to respect low RPM limits (Free Tier)
+        results = []
+        for m in metrics:
+            res = await m.a_measure(case, agent_response)
+            results.append(res)
+            # Small delay to prevent burst limit issues
+            await asyncio.sleep(0.5)
+    else:
+        # Parallel mode for production/high-quota keys
+        results = list(
+            await asyncio.gather(
+                *[m.a_measure(case, agent_response) for m in metrics],
+                return_exceptions=False,
+            )
         )
-    )
 
     # ── Step 3: Aggregate scores ───────────────────────────────────────────────
     metric_scores: dict[str, MetricScore] = {r.name: r for r in results}

@@ -22,11 +22,8 @@ class Config:
     # --- API Key Management ---
     @classmethod
     def get_gemini_key(cls) -> str:
-        """Fetch Gemini API key with cross-env support (GOOGLE_API_KEY or GEMINI_API_KEY)."""
+        """Fetch Gemini API key with preference for GOOGLE_API_KEY (standard GCP)."""
         key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-        if not key:
-            load_dotenv(cls.PROJECT_ROOT / ".env", override=True)
-            key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
         return (key or "").strip()
 
     @classmethod
@@ -37,8 +34,8 @@ class Config:
         return (os.getenv("OPENAI_API_KEY") or "").strip()
 
     # --- Judge Model Configuration (Stable Defaults) ---
-    JUDGE_MODEL_FAST: str = os.getenv("JUDGE_MODEL_FAST", "gemini-3.1-flash-lite-preview")
-    JUDGE_MODEL_SLOW: str = os.getenv("JUDGE_MODEL_SLOW", "gemini-3-flash-preview")
+    JUDGE_MODEL_FAST: str = "gemini-flash-latest"
+    JUDGE_MODEL_SLOW: str = "gemini-pro-latest"
 
     # --- Scoring Weights ---
     SAFETY_WEIGHT: float = float(os.getenv("SAFETY_WEIGHT", "2.0"))

@@ -400,6 +400,7 @@ def _sidebar():
             st.markdown(f'<div class="metric-label" style="margin-top:0.6rem">Last Run</div><div style="color:#94a3b8;font-size:0.8rem">{verdict} · {latest.get("agent_name","—")}</div>', unsafe_allow_html=True)
 
         st.markdown("---")
+        st.warning("⚠️ **GCP Free Tier Mode**\nConcurrency reduced to 1 to stay within the 15 RPM limit.", icon="🛡️")
         st.markdown('<div style="color:#334155;font-size:0.68rem;text-align:center">© 2025 Agent Eval Studio</div>', unsafe_allow_html=True)
 
 
@@ -541,7 +542,7 @@ def page_new_eval():
         elif agent_name == "gemini_agent":
             agent_model = st.selectbox(
                 "Model Plugin (Gemini)",
-                options=["gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-1.5-flash-latest", "gemini-1.5-pro-latest"],
+                options=["gemini-flash-latest", "gemini-pro-latest", "gemini-3.1-flash-lite-preview"],
                 index=0,
                 help="Select the specific Gemini model to test."
             )
@@ -577,7 +578,7 @@ def page_new_eval():
 
         judge_model = st.selectbox(
             "Judge Model",
-            ["gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-1.5-flash-latest"],
+            ["gemini-flash-latest", "gemini-pro-latest", "gemini-3.1-flash-lite-preview"],
             index=0,
             help="Gemini model used as the LLM-as-judge evaluator.",
         )
@@ -883,7 +884,7 @@ def page_chat():
 
             discovered = st.session_state.get(
                 "discovered_models", 
-                ["gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-1.5-flash-latest", "gemini-1.5-pro-latest"]
+                ["gemini-flash-latest", "gemini-pro-latest", "gemini-3.1-flash-lite-preview"]
             )
             if "Custom" not in discovered: discovered.append("Custom")
             
@@ -909,7 +910,7 @@ def page_chat():
         st.markdown("<hr>", unsafe_allow_html=True)
         judge_model = st.selectbox(
             "Judge Model for Eval",
-            ["gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-1.5-flash-latest"],
+            ["gemini-flash-latest", "gemini-pro-latest", "gemini-3.1-flash-lite-preview"],
             index=0,
             key="chat_judge_model"
         )
