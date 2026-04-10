@@ -219,8 +219,8 @@ All configuration is centralized in `src/config.py` and loaded from `.env`:
 | Setting | Default | Description |
 |:--------|:--------|:------------|
 | `GEMINI_API_KEY` | — | Required for LLM judge |
-| `JUDGE_MODEL_FAST` | `gemini-2.0-flash` | Fast model for initial scoring |
-| `JUDGE_MODEL_SLOW` | `gemini-2.5-pro-preview-05-06` | Slow model for uncertain/safety cases |
+| `JUDGE_MODEL_FAST` | `gemini-3.1-flash-lite-preview` | Fast model for initial scoring |
+| `JUDGE_MODEL_SLOW` | `gemini-3-flash-preview` | Slow model for uncertain/safety cases |
 | `MAX_CONCURRENT` | 5 | Max parallel test executions |
 | `AGENT_TIMEOUT_SECONDS` | 30 | Timeout per agent call |
 | `MAX_RETRIES` | 3 | Retry attempts on failure |

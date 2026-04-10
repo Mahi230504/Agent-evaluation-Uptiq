@@ -541,7 +541,8 @@ def page_new_eval():
         elif agent_name == "gemini_agent":
             agent_model = st.selectbox(
                 "Model Plugin (Gemini)",
-                options=["gemini-2.0-flash", "gemini-2.0-pro-exp", "gemini-1.5-flash", "gemini-1.5-pro"],
+                options=["gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-1.5-flash-latest", "gemini-1.5-pro-latest"],
+                index=0,
                 help="Select the specific Gemini model to test."
             )
         else:
@@ -576,7 +577,8 @@ def page_new_eval():
 
         judge_model = st.selectbox(
             "Judge Model",
-            ["gemini-2.0-flash", "gemini-2.0-pro-exp", "gemini-1.5-flash", "gemini-1.5-pro"],
+            ["gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-1.5-flash-latest"],
+            index=0,
             help="Gemini model used as the LLM-as-judge evaluator.",
         )
         os.environ["JUDGE_MODEL_FAST"] = judge_model
@@ -907,7 +909,7 @@ def page_chat():
         st.markdown("<hr>", unsafe_allow_html=True)
         judge_model = st.selectbox(
             "Judge Model for Eval",
-            ["gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-1.5-flash-latest", "gemini-2.0-flash"],
+            ["gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-1.5-flash-latest"],
             index=0,
             key="chat_judge_model"
         )
