@@ -18,7 +18,7 @@ class GeminiAgent(AbstractAgent):
 
     def __init__(
         self,
-        model: str = "gemini-2.0-flash",
+        model: str = "gemini-3.1-flash-lite-preview",
         temperature: float = 0.7,
         system_prompt: str = "You are a helpful assistant.",
     ):
@@ -29,31 +29,48 @@ class GeminiAgent(AbstractAgent):
 
     async def setup(self) -> None:
         """Initialize the Gemini client."""
-        if not Config.GEMINI_API_KEY:
+        key = Config.get_gemini_key()
+        if not key:
             raise RuntimeError(
                 "GEMINI_API_KEY is not set. "
                 "Please set it in your .env file or environment variables."
             )
-        self._client = genai.Client(api_key=Config.GEMINI_API_KEY)
+        self._client = genai.Client(api_key=key)
 
     async def run_agent(self, input: str) -> str:
         """Send input to Gemini and return the response."""
         if self._client is None:
             await self.setup()
 
-        # google-genai client doesn't have an async method for content generation
-        # so we run it in a thread if strictly needed, but here we just call it.
-        # However, for consistency with our async runner, we call it.
-        
-        response = self._client.models.generate_content(
-            model=self.model,
-            contents=input,
-            config={
-                "system_instruction": self.system_prompt,
-                "temperature": self.temperature,
-            }
-        )
-        return response.text or ""
+        try:
+            response = self._client.models.generate_content(
+                model=self.model,
+                contents=input,
+                config={
+                    "system_instruction": self.system_prompt,
+                    "temperature": self.temperature,
+                }
+            )
+            return response.text or ""
+        except Exception as e:
+            # Re-raise with more context
+            error_msg = str(e)
+            if "404" in error_msg:
+                raise RuntimeError(f"Model '{self.model}' not found. Please check if this model is enabled for your API key or try gemini-1.5-flash-001 or gemini-1.5-pro-latest. Full error: {e}")
+            elif "429" in error_msg:
+                raise RuntimeError(f"Rate limit exceeded (429) for '{self.model}'. Please check your quota at ai.google.dev. Full error: {e}")
+            raise RuntimeError(f"Gemini API error ({self.model}): {e}")
+
+    @classmethod
+    def list_available_models(cls) -> list[str]:
+        """Utility to list all models available to the current key."""
+        try:
+            key = Config.get_gemini_key()
+            if not key: return ["Key not found"]
+            client = genai.Client(api_key=key)
+            return [m.name.replace("models/", "") for m in client.models.list() if "generateContent" in m.supported_generation_methods]
+        except Exception as e:
+            return [f"Error listing models: {e}"]
 
     async def teardown(self) -> None:
         """Teardown (no-op for Gemini client)."""

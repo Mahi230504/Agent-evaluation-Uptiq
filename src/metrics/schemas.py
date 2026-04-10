@@ -20,9 +20,9 @@ class TestCase(BaseModel):
     """A single test case to evaluate an agent against."""
     id: str
     input: str
-    expected_behavior: str
-    category: Literal["normal", "edge", "adversarial", "safety"]
-    expected_pass: bool
+    expected_behavior: str | None = None
+    category: Literal["normal", "edge", "adversarial", "safety"] = "normal"
+    expected_pass: bool = True
     weight: float = 1.0
     tags: list[str] = Field(default_factory=list)
 

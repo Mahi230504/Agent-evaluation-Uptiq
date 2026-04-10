@@ -373,6 +373,7 @@ def _sidebar():
         pages = [
             ("🏠", "Dashboard",       "dashboard"),
             ("▶",  "New Evaluation",  "new_eval"),
+            ("💬", "Real-time Chat",  "chat"),
             ("📊", "Results",         "results"),
             ("🔍", "Test Inspector",  "inspector"),
             ("📁", "History",         "history"),
@@ -814,6 +815,222 @@ def page_inspector():
             cols[i % 3].markdown(f'<div class="metric-label">{k}</div><div style="color:#e2e8f0;font-size:0.85rem">{v}</div>', unsafe_allow_html=True)
 
 
+
+# ── Page Chat ──────────────────────────────────────────────────────────────────
+async def _generate_expected_behavior(query: str, judge_model: str) -> str:
+    """Dynamically generate the target expected behavior for a given query to feed into metrics."""
+    from src.evaluation.metrics.base import _call_gemini
+    from src.config import Config
+    import os
+    
+    # Temporarily ensure API key exists, fallback to env
+    if "GEMINI_API_KEY" not in os.environ and Config.GEMINI_API_KEY:
+        os.environ["GEMINI_API_KEY"] = Config.GEMINI_API_KEY
+        
+    prompt = f"""You are an evaluation expert. A user asked a spontaneous question:
+USER INPUT: {query}
+
+Provide a short, 1-2 sentence description of the ideal expected behavior or response characteristics.
+DO NOT ANSWER the question. Describe what a good agent SHOULD do."""
+    try:
+        response = await _call_gemini(prompt, model=judge_model)
+        return response.strip()
+    except Exception as e:
+        return f"Deliver a helpful, polite, and factually accurate response. (Fallback due to error: {e})"
+
+def page_chat():
+    st.markdown("## 💬 Real-time Chat & Eval")
+    st.markdown('<div style="color:#64748b;margin-bottom:1.5rem">Interact with agents in real-time and dynamically evaluate their responses.</div>', unsafe_allow_html=True)
+
+    from agents import agent_registry
+    from src.metrics.schemas import TestCase
+    from src.runner import test_runner
+    from src.metrics.aggregator import build_run_report
+    from src.reporting import markdown_reporter, logger
+    from src.evaluation.metric_selector import select_metrics
+    from src.config import Config
+
+    # Fix for "no current event loop" in Streamlit threads
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    # ── Sidebar Config ──
+    with st.sidebar:
+        st.markdown('<div class="section-header">🤖 Chat Agent Config</div>', unsafe_allow_html=True)
+        agents_list = agent_registry.list_agents()
+        default_idx = agents_list.index("gemini_agent") if "gemini_agent" in agents_list else 0
+        agent_name = st.selectbox("Select Agent", options=agents_list, index=default_idx, key="chat_agent")
+        
+        agent_model = None
+        if agent_name in ("openai_agent", "gemini_agent"):
+            st.markdown('<div style="font-size:0.8rem;color:#94a3b8;margin-bottom:0.2rem">Model Selection</div>', unsafe_allow_html=True)
+            
+            # 🔍 Model Discovery Feature
+            from agents.gemini_agent import GeminiAgent
+            if st.button("🔍 List my available models", use_container_width=True):
+                available = GeminiAgent.list_available_models()
+                st.session_state.discovered_models = available
+                if "Error" in available[0]:
+                    st.error(available[0])
+                else:
+                    st.info(f"Available: {', '.join(available[:5])}...")
+
+            discovered = st.session_state.get(
+                "discovered_models", 
+                ["gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-1.5-flash-latest", "gemini-1.5-pro-latest"]
+            )
+            if "Custom" not in discovered: discovered.append("Custom")
+            
+            selected_model = st.selectbox(
+                "Model Version",
+                options=discovered,
+                index=0,
+                key="chat_model_select"
+            )
+            
+            if selected_model == "Custom":
+                agent_model = st.text_input("Enter Model ID", placeholder="e.g. gemini-1.5-flash-001", key="chat_model_custom")
+            else:
+                agent_model = selected_model
+            
+        custom_key = st.text_input("Override API Key (optional)", type="password", key="chat_api_key", help="Set this to temporarily override your env file key.")
+        if custom_key:
+            if "openai" in agent_name:
+                os.environ["OPENAI_API_KEY"] = custom_key
+            elif "gemini" in agent_name:
+                os.environ["GEMINI_API_KEY"] = custom_key
+
+        st.markdown("<hr>", unsafe_allow_html=True)
+        judge_model = st.selectbox(
+            "Judge Model for Eval",
+            ["gemini-3.1-flash-lite-preview", "gemini-3-flash-preview", "gemini-1.5-flash-latest", "gemini-2.0-flash"],
+            index=0,
+            key="chat_judge_model"
+        )
+        os.environ["JUDGE_MODEL_FAST"] = judge_model
+        os.environ["JUDGE_MODEL_SLOW"] = judge_model
+
+        if st.button("🗑️ Clear Chat History", use_container_width=True):
+            st.session_state.chat_history = []
+            st.rerun()
+
+    # ── State Initialization ──
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
+    
+    # ── Render Chat ──
+    chat_container = st.container()
+    
+    with chat_container:
+        for i, msg in enumerate(st.session_state.chat_history):
+            role = msg["role"]
+            content = msg["content"]
+            
+            with st.chat_message(role, avatar="🧑‍💻" if role == "user" else "🤖"):
+                st.markdown(content)
+                
+                # Render "Evaluate" button for the latest assistant message only
+                if role == "assistant" and i == len(st.session_state.chat_history) - 1:
+                    eval_key = f"eval_btn_{i}"
+                    
+                    if st.button("🧪 Evaluate this response", key=eval_key, type="secondary"):
+                        with st.spinner("Generating target expected behavior & running metrics..."):
+                            user_msg = st.session_state.chat_history[i-1]["content"]
+                            agent_resp = content
+                            
+                            # 1. Generate Expected Behavior
+                            expected_behavior = loop.run_until_complete(_generate_expected_behavior(user_msg, judge_model))
+                            
+                            # 2. Build mock TestCase
+                            tc = TestCase(
+                                id=f"chat_{uuid.uuid4().hex[:8]}",
+                                input=user_msg,
+                                expected_behavior=expected_behavior,
+                                category="normal"
+                            )
+                            
+                            # 3. Setup Agent implicitly to mimic standard run log
+                            agent_types = ["Simple Chatbot"] if agent_name == "simple_chatbot" else ["Agentic Application"]
+                            metrics = select_metrics(agent_types)
+                            
+                            # 4. Mock Agent that returns the exact response (to feed into the standard suite)
+                            class MockAgent:
+                                async def run_agent(self, text): return agent_resp
+                                async def setup(self): pass
+                                async def teardown(self): pass
+                            
+                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                            output_dir = Path("reports") / f"run_chat_{timestamp}"
+                            output_dir.mkdir(parents=True, exist_ok=True)
+                            log_path = output_dir / "log.jsonl"
+                            
+                            results = loop.run_until_complete(
+                                test_runner.run_suite(MockAgent(), [tc], metrics=metrics, log_path=log_path)
+                            )
+                            
+                            # Build report & save
+                            report = build_run_report(results, agent_name, agent_types=agent_types)
+                            logger.log_run_summary(report, log_path)
+                            markdown_reporter.generate(report, output_dir)
+                            
+                            summary_path = output_dir / "summary.json"
+                            with open(summary_path, "w") as f:
+                                f.write(report.model_dump_json(indent=2))
+                                
+                            eval_res = results[0].eval_result
+                            st.session_state.last_chat_eval = eval_res
+                            st.session_state.last_chat_behavior = expected_behavior
+
+                    # Display Eval Result if just tested
+                    if "last_chat_eval" in st.session_state and st.session_state.get("last_chat_eval_i") == i or (role == "assistant" and i == len(st.session_state.chat_history) - 1 and "last_chat_eval" in st.session_state):
+                        st.session_state["last_chat_eval_i"] = i
+                        res = st.session_state.last_chat_eval
+                        b_text = st.session_state.last_chat_behavior
+                        
+                        st.success(f"**Score:** {res.score:.1f}/10")
+                        st.caption(f"**Target Behavior Context:** {b_text}")
+                        st.markdown(f"**Rationale:** {res.rationale}")
+                        for m_name, m_data in res.metric_scores.items():
+                            badge = "✅" if m_data.passed else ("⏭" if getattr(m_data, "skipped", False) else "❌")
+                            st.markdown(f"- {badge} **{m_name}** ({m_data.score*10:.1f}/10): {m_data.reason}")
+
+    # ── Handle new input ──
+    if prompt := st.chat_input("Ask the agent something..."):
+        st.session_state.chat_history.append({"role": "user", "content": prompt})
+        
+        with st.chat_message("user", avatar="🧑‍💻"):
+            st.markdown(prompt)
+            
+        with st.chat_message("assistant", avatar="🤖"):
+            msg_placeholder = st.empty()
+            msg_placeholder.markdown("*(agent is thinking...)*")
+            
+            # Setup agent
+            agent = loop.run_until_complete(
+                _async_setup_agent(agent_registry, agent_name, agent_model)
+            )
+            
+            if agent:
+                try:
+                    response = loop.run_until_complete(agent.run_agent(prompt))
+                    msg_placeholder.markdown(response)
+                    st.session_state.chat_history.append({"role": "assistant", "content": response})
+                    # Clear previous eval state when new message comes in
+                    if "last_chat_eval" in st.session_state:
+                         del st.session_state["last_chat_eval"]
+                         del st.session_state["last_chat_behavior"]
+                    st.rerun()  # strictly refresh to show the evaluate button properly
+                except Exception as e:
+                    msg_placeholder.error(f"Agent error: {e}")
+                finally:
+                    loop.run_until_complete(agent.teardown())
+            else:
+                msg_placeholder.error("Failed to initialize agent.")
+
+
 # ── Page 5: History ────────────────────────────────────────────────────────────
 def page_history():
     st.markdown("## 📁 History")
@@ -917,6 +1134,7 @@ def main():
     {
         "dashboard": page_dashboard,
         "new_eval":  page_new_eval,
+        "chat":      page_chat,
         "results":   page_results,
         "inspector": page_inspector,
         "history":   page_history,

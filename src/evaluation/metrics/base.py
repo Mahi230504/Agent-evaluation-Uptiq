@@ -18,16 +18,22 @@ from src.metrics.schemas import TestCase, MetricScore
 
 # ── Lazy Gemini client ─────────────────────────────────────────────────────────
 _client: genai.Client | None = None
+_last_key: str | None = None
 
 
 def _get_client() -> genai.Client:
-    global _client
-    if _client is None:
-        if not Config.GEMINI_API_KEY:
-            raise RuntimeError(
-                "GEMINI_API_KEY not set. Cannot use LLM-as-judge metrics."
-            )
-        _client = genai.Client(api_key=Config.GEMINI_API_KEY)
+    """Lazy initialize the Gemini client with the current key from Config."""
+    global _client, _last_key
+    current_key = Config.get_gemini_key()
+    
+    if _client is None or current_key != _last_key:
+        if not current_key:
+            raise ValueError("GEMINI_API_KEY / GOOGLE_API_KEY not found in background or .env")
+        # Ensure key is stripped
+        current_key = current_key.strip()
+        _client = genai.Client(api_key=current_key)
+        _last_key = current_key
+    
     return _client
 
 
