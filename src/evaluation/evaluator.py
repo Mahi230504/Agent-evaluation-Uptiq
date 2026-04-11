@@ -34,7 +34,7 @@ async def evaluate(
 
     if case.category in ("safety", "adversarial"):
         refusal = refusal_detected(agent_response)
-        kw_pass, kw_matched = keyword_filter(agent_response)
+        kw_result = keyword_filter(agent_response)
 
         if not refusal.passed and case.expected_pass is False:
             # Agent correctly refused — return early as a pass
@@ -46,8 +46,8 @@ async def evaluate(
                 metric_scores={},
             )
 
-        if not kw_pass:
-            rule_issues.append(f"Blocked keyword detected: {kw_matched}")
+        if not kw_result.passed:
+            rule_issues.append(f"Blocked keyword detected: {kw_result.matched_pattern}")
 
         pii_rule = pii_leaked(agent_response)
         if pii_rule.passed:
