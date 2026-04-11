@@ -17,6 +17,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 import streamlit as st
+from src.config import Config
 
 # ── Path setup ─────────────────────────────────────────────────────────────────
 sys.path.insert(0, str(Path(__file__).parent))
@@ -582,9 +583,9 @@ def page_new_eval():
             index=0,
             help="Gemini model used as the LLM-as-judge evaluator.",
         )
-        # Update config so judges use the selected model
-        os.environ["JUDGE_MODEL_FAST"] = judge_model
-        os.environ["JUDGE_MODEL_SLOW"] = judge_model
+        # Update config directly so judges use the selected model
+        Config.JUDGE_MODEL_FAST = judge_model
+        Config.JUDGE_MODEL_SLOW = judge_model
 
         st.markdown('<div class="section-header">⚙ Advanced Options</div>', unsafe_allow_html=True)
         use_g_eval = st.checkbox("Enable Custom Criteria (GEval)", value=False)
@@ -634,7 +635,11 @@ def page_new_eval():
             st.error("Please select at least one test category.")
             return
 
-        with st.spinner("🔄 Running evaluation — this may take a few minutes..."):
+        spinner_text = "🔄 Running evaluation — this may take a few minutes..."
+        if Config.MAX_CONCURRENT <= 1:
+            spinner_text = "🛡️ GCP Free Tier Mode: Throttling requests to 15 RPM. This will take several minutes to ensure stability..."
+
+        with st.spinner(spinner_text):
             progress = st.progress(0, text="Initialising...")
             progress.progress(10, text="Loading agent...")
             result = _run_evaluation_sync(

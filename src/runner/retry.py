@@ -21,8 +21,8 @@ class AgentCallError(Exception):
 async def call_with_retry(
     fn: Callable,
     input: str,
-    max_retries: int = 3,
-    timeout_seconds: int = 30,
+    max_retries: int = 5,
+    timeout_seconds: int = 45,
 ) -> str:
     """
     Call an async function with retry logic and timeout.
@@ -62,9 +62,10 @@ async def call_with_retry(
         except Exception as e:
             last_error = e
             
-            # If we hit a known rate limit code, enforce a longer backoff
+            # If we hit a known rate limit code, enforce a longer backoff (api demands 55s)
             if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                backoff = 15.0 * (2 ** attempt) # 15s, 30s...
+                backoff = 60.0 + (10.0 * attempt) # 60s, 70s, 80s
+                print(f"  ⚠️ [Agent Rate Limit] Quota exceeded. Waiting {backoff}s... (Attempt {attempt+1}/{max_retries})")
                 await asyncio.sleep(backoff)
                 continue
 

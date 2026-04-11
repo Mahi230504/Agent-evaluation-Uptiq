@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import asyncio
 from abc import ABC, abstractmethod
 
 import google.genai as genai
@@ -38,17 +39,47 @@ def _get_client() -> genai.Client:
 
 
 async def _call_gemini(prompt: str, model: str) -> str:
-    """Make an async Gemini call and return raw text."""
+    """
+    Make an async Gemini call with retry logic.
+    For GCP Free Tier, we catch 429 (Resource Exhausted) and back off aggressively.
+    """
     client = _get_client()
-    response = await client.aio.models.generate_content(
-        model=model,
-        contents=prompt,
-        config=genai_types.GenerateContentConfig(
-            temperature=0.0,
-            max_output_tokens=512,
-        ),
-    )
-    return response.text or ""
+    max_retries = 5
+    
+    for attempt in range(max_retries):
+        try:
+            response = await client.aio.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=genai_types.GenerateContentConfig(
+                    temperature=0.0,
+                    max_output_tokens=512,
+                ),
+            )
+            
+            # Post-call cooldown to naturally stay below 15 RPM
+            if Config.MAX_CONCURRENT <= 1:
+                await asyncio.sleep(2.0)
+                
+            return response.text or ""
+
+        except Exception as e:
+            err_str = str(e).upper()
+            if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "QUOTA" in err_str:
+                if attempt < max_retries - 1:
+                    # Mandatory long wait for Free Tier recovery (Gemini 15 RPM asks for ~55s delay)
+                    wait_time = 60.0 + (10.0 * attempt)
+                    print(f"  ⚠️ [Rate Limit] Gemini quota exceeded. Waiting {wait_time}s... (Attempt {attempt+1}/{max_retries})")
+                    await asyncio.sleep(wait_time)
+                    continue
+            
+            if attempt == max_retries - 1:
+                print(f"  ❌ Gemini call failed after {max_retries} attempts: {e}")
+                raise e
+            
+            await asyncio.sleep(1.0 * (attempt + 1))
+            
+    return ""
 
 
 def _parse_json_response(raw: str) -> dict:

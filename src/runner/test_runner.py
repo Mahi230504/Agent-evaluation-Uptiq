@@ -38,23 +38,38 @@ async def run_suite(
     Returns:
         List of TestResult objects.
     """
-    semaphore = asyncio.Semaphore(Config.MAX_CONCURRENT)
-
     _metrics = metrics or []
 
-    async def _guarded_run(case: TestCase) -> TestResult:
-        async with semaphore:
-            return await _run_single(agent, case, _metrics)
+    results: list[TestResult] = []
+    
+    if Config.MAX_CONCURRENT <= 1:
+        # Strict sequential mode with inter-test spacing for Free Tier
+        print(f"🛡️  [Free Tier Mode] Running {len(cases)} tests sequentially with 5s cooldown...")
+        for case in cases:
+            res = await _run_single(agent, case, _metrics)
+            results.append(res)
+            # Log result immediately
+            if log_path:
+                log_result(res, Path(log_path))
+            
+            # Additional spacing to stay under 15 RPM (1 call every 4s)
+            # A test case makes ~6 calls, so we need a significant buffer
+            await asyncio.sleep(5.0)
+    else:
+        # Bounded parallel mode
+        semaphore = asyncio.Semaphore(Config.MAX_CONCURRENT)
+        
+        async def _guarded_run(case: TestCase) -> TestResult:
+            async with semaphore:
+                return await _run_single(agent, case, _metrics)
 
-    # Run all tests concurrently (bounded by semaphore)
-    tasks = [_guarded_run(case) for case in cases]
-    results: list[TestResult] = list(await asyncio.gather(*tasks, return_exceptions=False))
+        tasks = [_guarded_run(case) for case in cases]
+        results = list(await asyncio.gather(*tasks, return_exceptions=False))
 
-    # Log intermediate results
-    if log_path:
-        log_path = Path(log_path)
-        for result in results:
-            log_result(result, log_path)
+        if log_path:
+            lp = Path(log_path)
+            for result in results:
+                log_result(result, lp)
 
     return results
 

@@ -79,8 +79,8 @@ async def evaluate(
         for m in metrics:
             res = await m.a_measure(case, agent_response)
             results.append(res)
-            # Small delay to prevent burst limit issues
-            await asyncio.sleep(0.5)
+            # Mandatory delay between metrics to stay under 15 RPM
+            await asyncio.sleep(2.0)
     else:
         # Parallel mode for production/high-quota keys
         results = list(
